@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>후처리 시험</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<header>
+  <h1>얼굴 변환 API 시험</h1>
+  <nav><a href="/test/aging">① 나이 변환</a><a href="/test/post" class="on">② 후처리 (머리·화장·안경)</a></nav>
+  <div class="row" style="margin:0">
+    <span id="health" class="status">서버 확인 중…</span>
+    <label class="f">API 키 (정했을 때만)<input id="apikey" type="password" placeholder="X-API-Key"></label>
+    <a href="/docs" target="_blank" class="status">Swagger 문서 ↗</a>
+  </div>
+</header>
+
+<main>
+  <!-- 기준 이미지 -->
+  <section>
+    <h2>기준 이미지</h2>
+    <p class="hint">나이 변환 결과(또는 이 페이지에서 만든 머리 결과)를 고르거나, 얼굴 사진을 바로 올린다. 아래 단계는 모두 이 기준에 적용된다.</p>
+    <div class="row">
+      <div class="f">입력
+        <div class="seg">
+          <label><input type="radio" name="src" value="result" checked><span>이전 결과</span></label>
+          <label><input type="radio" name="src" value="image"><span>사진 올리기</span></label>
+        </div>
+      </div>
+      <label class="f src-result">최근 결과<select id="base-recent"></select></label>
+      <label class="f src-result">또는 result_id 직접<input id="base-id" type="text" placeholder="20261020-134315-e00dd3"></label>
+      <button id="base-load" class="ghost src-result">불러오기</button>
+      <label class="f src-image" hidden>얼굴 사진<input id="base-image" type="file" accept="image/*"></label>
+      <img id="base-preview" class="preview src-image" alt="">
+      <div class="f src-image" hidden>성별
+        <div class="seg">
+          <label><input type="radio" name="sex" value="M" checked><span>남</span></label>
+          <label><input type="radio" name="sex" value="F"><span>여</span></label>
+        </div>
+      </div>
+    </div>
+    <div id="base-status" class="status"></div>
+    <div class="row src-result"><div class="f">적용할 이미지 (눌러서 고르기)<div id="base-keys" class="keys"><span class="status">결과를 불러오세요</span></div></div></div>
+  </section>
+
+  <!-- 머리 -->
+  <section>
+    <h2>머리 스타일·색 <span class="tag">POST /v1/hair</span></h2>
+    <p class="hint">HairFastGAN 으로 모양을 바꾸고 머리 영역에 색을 칠한다. 1장에 1분 안팎 (모델을 처음 올릴 때 더 걸림).</p>
+    <div class="row">
+      <label class="f"><span>스타일 (<b id="hr-sex">남</b>)</span><select id="hr-style"></select></label>
+      <label class="f"><span>머리 크기 <b id="hr-scale-v">1.00</b></span><input id="hr-scale" type="range" min="0.8" max="1.25" step="0.05" value="1"></label>
+    </div>
+    <div class="row"><div class="f">참조 사진 (auto = 얼굴 폭이 가장 비슷한 것 자동)<div id="hr-refs" class="thumbs"></div></div></div>
+    <div class="row">
+      <div class="f"><span>색 <b id="hr-color-name">없음 (참조 사진 색)</b></span><div id="hr-colors" class="swatches"></div></div>
+      <label class="f">직접 고르기<input id="hr-custom" type="color" value="#6b5a4e"></label>
+      <button id="hr-run">머리 적용</button>
+    </div>
+    <div id="hr-status" class="status"></div>
+  </section>
+
+  <!-- 화장 -->
+  <section class="off">
+    <h2>화장 <span class="tag">POST /v1/makeup</span> <span class="tag todo">서버에 아직 없음</span></h2>
+    <p class="hint">ai_lab 에는 참조 사진의 화장을 옮기는 코드(src/makeup_transfer.py, CSD-MT / EleGANt)가 있지만 이 서버 API 에는 아직 넣지 않았다. 화면만 먼저 만들어 둔 상태.</p>
+    <div class="row">
+      <label class="f">화장 참조 사진<input type="file" accept="image/*" disabled></label>
+      <label class="f"><span>세기 0.50</span><input type="range" min="0" max="1" step="0.05" value="0.5" disabled></label>
+      <div class="f">부위
+        <div class="keys" style="gap:12px">
+          <label style="display:flex"><input type="checkbox" checked disabled>입술</label>
+          <label style="display:flex"><input type="checkbox" checked disabled>눈</label>
+          <label style="display:flex"><input type="checkbox" checked disabled>피부</label>
+        </div>
+      </div>
+      <button disabled>화장 적용</button>
+    </div>
+  </section>
+
+  <!-- 안경 -->
+  <section>
+    <h2>안경 <span class="tag">POST /v1/glasses</span> <span class="tag todo">구현 전 (501)</span></h2>
+    <p class="hint">요청 형식만 정해 둔 상태. 지금은 서버가 501 을 돌려준다.</p>
+    <div class="row">
+      <label class="f">안경 스타일<input id="gl-style" type="text" value="round"></label>
+      <button id="gl-run">안경 씌우기</button>
+    </div>
+    <div id="gl-status" class="status"></div>
+  </section>
+
+  <!-- 결과 -->
+  <section>
+    <h2>결과 <span class="tag">최신이 위</span></h2>
+    <p class="hint">"이걸 기준으로" 를 누르면 그 결과 위에 다음 단계를 이어서 적용할 수 있다 (예: 머리 → 안경).</p>
+    <div id="runs"><span class="status">아직 없음</span></div>
+  </section>
+
+  <section>
+    <h2>마지막 응답</h2>
+    <pre id="raw">아직 없음</pre>
+  </section>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+initApiKey();
+initHealth();
+
+let base = null;   // 불러온 결과: { result_id, kind, sex, keys: [...] }
+let presets = null, hairRef = 'auto', hairColor = null;
+
+// ---------------------------------------------------------------- 기준 이미지
+const srcMode = () => radio('src');
+
+function renderRecent(selected) {
+  const list = recent();
+  $('base-recent').innerHTML = list.length
+    ? list.map(r => `<option value="${r.result_id}">${label(r)} (${r.time})</option>`).join('')
+    : '<option value="">(없음: ① 페이지에서 나이 변환을 먼저)</option>';
+  if (selected) $('base-recent').value = selected;
+}
+
+async function loadBase(rid, onlyKey) {
+  if (!rid) return done('base', '결과를 고르거나 result_id 를 넣으세요.', false);
+  setRadio('src', 'result');
+  applySrc();
+  try {
+    const m = await api(`/v1/results/${encodeURIComponent(rid)}`);
+    base = { result_id: m.result_id, kind: m.kind, sex: m.sex, keys: Object.keys(m.images) };
+    $('base-id').value = '';
+    renderRecent(rid);
+    if ($('base-recent').value !== rid) {  // 목록에 없던 id 면 넣어 둔다
+      remember({ result_id: m.result_id, kind: m.kind, sex: m.sex, parent_id: m.parent_id, images: base.keys.map(key => ({ key })) });
+      renderRecent(rid);
+    }
+    $('base-keys').innerHTML = '';
+    for (const key of base.keys) {
+      const lb = document.createElement('label');
+      const img = document.createElement('img');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = key;
+      cb.checked = !onlyKey || key === onlyKey;
+      lb.append(img, cb, imgLabel({ key }));
+      $('base-keys').append(lb);
+      blobUrl(m.urls[key]).then(u => img.src = u).catch(() => {});
+    }
+    if (m.sex) setRadio('sex', m.sex);
+    done('base', `${KIND[m.kind] || m.kind} 결과 · ${m.sex === 'F' ? '여' : '남'} · ${m.created}` + (m.parent_id ? ` · 기준 ${m.parent_id}` : ''));
+    renderStyles();
+  } catch (e) {
+    base = null;
+    $('base-keys').innerHTML = '';
+    if (e.message.startsWith('404')) { forget(rid); renderRecent(); }
+    done('base', e.message, false);
+  }
+}
+
+function applySrc() {
+  const img = srcMode() === 'image';
+  document.querySelectorAll('.src-image').forEach(n => n.hidden = !img);
+  document.querySelectorAll('.src-result').forEach(n => n.hidden = img);
+  if (img) $('base-preview').style.display = $('base-preview').src ? 'block' : 'none';
+  renderStyles();
+}
+document.querySelectorAll('input[name=src]').forEach(el => el.addEventListener('change', applySrc));
+document.querySelectorAll('input[name=sex]').forEach(el => el.addEventListener('change', renderStyles));
+$('base-recent').addEventListener('change', () => loadBase($('base-recent').value));
+$('base-load').addEventListener('click', () => loadBase($('base-id').value.trim() || $('base-recent').value));
+$('base-id').addEventListener('keydown', e => { if (e.key === 'Enter') loadBase($('base-id').value.trim()); });
+$('base-image').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) { $('base-preview').src = URL.createObjectURL(f); $('base-preview').style.display = 'block'; }
+});
+
+const curSex = () => (srcMode() === 'result' && base && base.sex) || radio('sex');
+
+// 요청 폼에 기준 이미지를 넣는다. 문제가 있으면 오류 문장을 돌려준다.
+function addSource(form) {
+  if (srcMode() === 'image') {
+    const f = $('base-image').files[0];
+    if (!f) return '기준: 얼굴 사진을 고르세요.';
+    form.append('image', f);
+    form.append('sex', radio('sex'));
+    return null;
+  }
+  if (!base) return '기준: 결과를 먼저 불러오세요.';
+  const keys = [...$('base-keys').querySelectorAll('input:checked')].map(x => x.value);
+  if (!keys.length) return '기준: 적용할 이미지를 하나 이상 고르세요.';
+  form.append('result_id', base.result_id);
+  form.append('keys', keys.join(','));
+  return null;
+}
+
+// ---------------------------------------------------------------- 머리
+$('hr-scale').addEventListener('input', e => $('hr-scale-v').textContent = Number(e.target.value).toFixed(2));
+
+function renderStyles() {
+  if (!presets) return;
+  const sex = curSex();
+  $('hr-sex').textContent = sex === 'F' ? '여' : '남';
+  const styles = presets.styles[sex] || [];
+  const prev = $('hr-style').value;
+  $('hr-style').innerHTML = '<option value="">(바꾸지 않음, 색만)</option>' +
+    styles.map(s => `<option value="${s.key}">${s.name} — ${s.desc}</option>`).join('');
+  if (styles.some(s => s.key === prev)) $('hr-style').value = prev;
+  else if (styles.length) $('hr-style').value = styles[0].key;
+  if ($('hr-style').value !== prev || $('hr-refs').dataset.sex !== sex) renderRefs();
+}
+
+function renderRefs() {
+  const sex = curSex(), key = $('hr-style').value;
+  const st = (presets.styles[sex] || []).find(s => s.key === key);
+  const box = $('hr-refs');
+  box.innerHTML = '';
+  box.dataset.sex = sex;
+  hairRef = 'auto';
+  if (!st) { box.innerHTML = '<span class="status">스타일을 고르면 참조 사진이 나온다</span>'; return; }
+  const mk = (name, inner) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = name;
+    b.className = name === 'auto' ? 'on' : '';
+    b.append(inner);
+    b.addEventListener('click', () => { hairRef = name; box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); });
+    box.append(b);
+  };
+  const auto = document.createElement('div');
+  auto.className = 'auto';
+  auto.textContent = 'auto';
+  mk('auto', auto);
+  for (const ref of st.refs) {
+    const img = document.createElement('img');
+    img.alt = ref;
+    mk(ref, img);
+    blobUrl(`/v1/hair/styles/${sex}/${key}/${encodeURIComponent(ref)}/thumbnail`).then(u => img.src = u).catch(() => {});
+  }
+}
+$('hr-style').addEventListener('change', renderRefs);
+
+function renderColors() {
+  const box = $('hr-colors');
+  const pick = (b, value, name) => {
+    hairColor = value;
+    $('hr-color-name').textContent = name;
+    box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  };
+  const none = document.createElement('button');
+  none.type = 'button';
+  none.className = 'none on';
+  none.textContent = '없음';
+  none.addEventListener('click', () => pick(none, null, '없음 (참조 사진 색)'));
+  box.append(none);
+  for (const c of presets.colors) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = c.name;
+    b.style.background = c.hex;
+    b.addEventListener('click', () => pick(b, c.key, `${c.name} ${c.hex}`));
+    box.append(b);
+  }
+  $('hr-custom').addEventListener('input', e => pick(null, e.target.value, `직접 ${e.target.value}`));
+}
+
+$('hr-run').addEventListener('click', async () => {
+  const form = new FormData();
+  const err = addSource(form);
+  if (err) return done('hr', err, false);
+  if ($('hr-style').value) { form.append('style', $('hr-style').value); form.append('ref', hairRef); }
+  if (hairColor) form.append('color', hairColor);
+  if (!$('hr-style').value && !hairColor) return done('hr', '스타일이나 색 중 하나는 고르세요.', false);
+  form.append('scale', $('hr-scale').value);
+  busy('hr', true, '머리 적용 중 (1장에 1분 안팎)');
+  try {
+    const res = await api('/v1/hair', form);
+    busy('hr', false);
+    done('hr', `완료 ${res.seconds}초 · result_id ${res.result_id}`);
+    remember(res);
+    renderRecent(base && base.result_id);
+    addRun(res);
+  } catch (e) { busy('hr', false); done('hr', e.message, false); }
+});
+
+// ---------------------------------------------------------------- 안경
+$('gl-run').addEventListener('click', async () => {
+  const form = new FormData();
+  const err = addSource(form);
+  if (err) return done('gl', err, false);
+  form.append('style', $('gl-style').value);
+  busy('gl', true, '요청 중');
+  try {
+    const res = await api('/v1/glasses', form);
+    busy('gl', false);
+    done('gl', `완료 ${res.seconds}초`);
+    remember(res);
+    addRun(res);
+  } catch (e) { busy('gl', false); done('gl', e.message, false); }
+});
+
+// ---------------------------------------------------------------- 결과 기록
+function addRun(res) {
+  const box = $('runs');
+  if (!box.querySelector('.run')) box.innerHTML = '';
+  const run = document.createElement('div');
+  run.className = 'run';
+  const head = document.createElement('div');
+  head.className = 'run-head';
+  const ex = res.extra || {};
+  const opts = [ex.style && `스타일 ${ex.style}`, ex.color && `색 ${ex.color}`, ex.scale && ex.scale !== 1 && `크기 ${ex.scale}`].filter(Boolean).join(' · ');
+  head.innerHTML = `<b>${KIND[res.kind] || res.kind}</b><span class="status">${res.result_id} · ${res.seconds}초` +
+                   (opts ? ` · ${opts}` : '') + (res.parent_id ? ` · 기준 ${res.parent_id}` : '') + '</span>';
+  const all = document.createElement('button');
+  all.className = 'small ghost';
+  all.textContent = '전체를 기준으로';
+  all.addEventListener('click', () => { loadBase(res.result_id); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+  head.append(all);
+  run.append(head);
+  run.append(resultGrid(res, im => {
+    const b = document.createElement('button');
+    b.className = 'small ghost';
+    b.textContent = '이걸 기준으로';
+    b.addEventListener('click', () => { loadBase(res.result_id, im.key); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    return [b];
+  }));
+  box.prepend(run);
+}
+
+// ---------------------------------------------------------------- 시작
+renderRecent();
+api('/v1/hair/styles').then(p => { presets = p; renderStyles(); renderColors(); })
+  .catch(e => done('hr', '스타일 목록을 못 받음: ' + e.message, false));
+const qid = new URLSearchParams(location.search).get('result_id');
+if (qid) loadBase(qid);
+else if (recent().length) loadBase(recent()[0].result_id);
+</script>
+</body>
+</html>

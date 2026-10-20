@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>나이 변환 시험</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<header>
+  <h1>얼굴 변환 API 시험</h1>
+  <nav><a href="/test/aging" class="on">① 나이 변환</a><a href="/test/post">② 후처리 (머리·화장·안경)</a></nav>
+  <div class="row" style="margin:0">
+    <span id="health" class="status">서버 확인 중…</span>
+    <label class="f">API 키 (정했을 때만)<input id="apikey" type="password" placeholder="X-API-Key"></label>
+    <a href="/docs" target="_blank" class="status">Swagger 문서 ↗</a>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>나이 변환 <span class="tag">POST /v1/aging</span></h2>
+    <p class="hint">SAM + 나이 인코더 전체 튜닝(best_encoder.pt) + 성별 보정. 흑백 사진은 자동으로 컬러화한다. 나이 2개에 10~13초쯤 걸린다.</p>
+    <div class="row">
+      <label class="f">어릴 때 사진<input id="ag-image" type="file" accept="image/*"></label>
+      <img id="ag-preview" class="preview" alt="">
+    </div>
+    <div class="row">
+      <label class="f">목표 나이 (쉼표로 여러 개, 최대 5개)<input id="ag-ages" type="text" value="20,30,40"></label>
+      <div class="f">성별
+        <div class="seg">
+          <label><input type="radio" name="ag-sex" value="M" checked><span>남</span></label>
+          <label><input type="radio" name="ag-sex" value="F"><span>여</span></label>
+        </div>
+      </div>
+      <label class="f"><span>성별 보정 세기 <b id="ag-gs-v">2.0</b></span><input id="ag-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
+      <button id="ag-run">나이 변환</button>
+    </div>
+    <div id="ag-status" class="status"></div>
+  </section>
+
+  <section>
+    <h2>결과 <span class="tag">최신이 위</span></h2>
+    <p class="hint">결과마다 "후처리로 →" 를 누르면 ② 페이지에서 그 결과에 머리·화장·안경을 이어서 적용한다.</p>
+    <div id="ag-runs"><span class="status">아직 없음</span></div>
+  </section>
+
+  <section>
+    <h2>마지막 응답</h2>
+    <pre id="raw">아직 없음</pre>
+  </section>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+initApiKey();
+initHealth();
+
+$('ag-image').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) { $('ag-preview').src = URL.createObjectURL(f); $('ag-preview').style.display = 'block'; }
+});
+$('ag-gs').addEventListener('input', e => $('ag-gs-v').textContent = Number(e.target.value).toFixed(1));
+
+function addRun(res, file) {
+  const box = $('ag-runs');
+  if (!box.querySelector('.run')) box.innerHTML = '';
+  const run = document.createElement('div');
+  run.className = 'run';
+  const head = document.createElement('div');
+  head.className = 'run-head';
+  const sexTxt = res.sex === 'F' ? '여' : '남';
+  head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · 성별 보정 ${res.extra.gender_strength}` +
+                   (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
+  const go = document.createElement('button');
+  go.className = 'small';
+  go.textContent = '후처리로 →';
+  go.addEventListener('click', () => location.href = `/test/post?result_id=${encodeURIComponent(res.result_id)}`);
+  head.append(go);
+  run.append(head);
+
+  const grid = resultGrid(res);
+  if (file) {  // 비교용으로 올린 사진을 맨 앞에
+    const fig = document.createElement('figure');
+    fig.innerHTML = `<img alt="원본" src="${URL.createObjectURL(file)}"><figcaption><b>원본</b><span>${file.name}</span></figcaption>`;
+    grid.prepend(fig);
+  }
+  run.append(grid);
+  box.prepend(run);
+}
+
+$('ag-run').addEventListener('click', async () => {
+  const f = $('ag-image').files[0];
+  if (!f) return done('ag', '사진을 고르세요.', false);
+  const form = new FormData();
+  form.append('image', f);
+  form.append('ages', $('ag-ages').value);
+  form.append('sex', radio('ag-sex'));
+  form.append('gender_strength', $('ag-gs').value);
+  busy('ag', true, '나이 변환 중');
+  try {
+    const res = await api('/v1/aging', form);
+    busy('ag', false);
+    done('ag', `완료 ${res.seconds}초 · result_id ${res.result_id}`);
+    remember(res);
+    addRun(res, f);
+  } catch (e) { busy('ag', false); done('ag', e.message, false); }
+});
+</script>
+</body>
+</html>

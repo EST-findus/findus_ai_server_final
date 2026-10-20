@@ -1,0 +1,35 @@
+# ai_lab .venv 와 같은 버전. 설치 순서:
+#   1) pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
+#   2) pip install -r requirements.txt
+#   3) pip install --no-build-isolation --no-deps git+https://github.com/openai/CLIP.git   (HairFastGAN 이 씀)
+
+numpy==1.26.4
+opencv-python==4.10.0.84
+Pillow==10.4.0
+scipy==1.13.1
+scikit-image==0.24.0
+pyyaml==6.0.2
+tqdm
+
+# 검출 (RetinaFace)
+facexlib==0.3.0
+
+# CodeFormer 내장 basicsr 의존성 (pip basicsr 는 설치하지 않음: CodeFormer 쪽과 충돌)
+addict
+future
+lmdb
+yapf
+lpips
+
+# HairFastGAN (CLIP 은 위 3번으로 따로)
+wheel
+scikit-learn
+ftfy
+regex
+dill
+
+# 서버
+fastapi==0.115.6
+pydantic==2.10.6
+uvicorn==0.54.0
+python-multipart==0.0.32

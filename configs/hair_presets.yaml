@@ -1,0 +1,108 @@
+# 머리 스타일·색 목록 (/final 화면과 기본·가족·/hair 화면의 머리 칸 공용).
+# 출처와 고른 이유: docs/[15]_최종_모델_페이지.md
+#
+# 머리 모양은 HairFastGAN 이 '참조 사진'으로 받는다. 스타일마다 사진을 이 폴더에 넣으면 화면 목록에 나온다:
+#   data/hair_refs/<성별 M|F>/<스타일 key>/*.jpg|png     (git 제외. 얼굴 사진이라 재배포 금지)
+# AI Hub「한국인 헤어스타일 이미지」(K-Hairstyle)를 받았다면:
+#   python scripts/build_hair_refs.py --khair <압축 푼 폴더>      (라벨의 basestyle·sex 로 골라 넣는다)
+# 사진이 없는 스타일은 화면에 "참조 사진 없음"으로 나오고 고를 수 없다.
+#
+# khair: K-Hairstyle 라벨의 basestyle 이름 중 이 스타일에 가까운 것 (데이터 설명서로 확인 후 고칠 것)
+#
+# 기본 길이 (각 목록 앞쪽, basic: true): AI Hub 에이징 데이터의 한국인 성인 정면 사진에서 자동 분류 후 눈으로 골랐다
+#   python scripts/hair_length_refs.py  (사진: data/hair_refs/<성별>/<key>/aihub_*.png, 고른 목록 experiments/hair_length_refs/picks.json)
+# 결과 사진이 목 언저리까지만 보여서 중단발과 장발은 구분되지 않는다 → '긴 머리' 하나로 묶었다.
+
+styles:
+  M:
+    - {key: buzz,       name: 아주 짧은 머리,  desc: "스포츠머리 (삭발에 가까운 짧은 머리)",         basic: true}
+    - {key: short,      name: 짧은 머리,       desc: "이마를 드러낸 짧은 머리",                       basic: true}
+    - {key: short_bang, name: 덮머,            desc: "앞머리를 내려 이마를 덮은 짧은 머리",           basic: true}
+  F:
+    - {key: short,      name: 숏컷,            desc: "귀 언저리 길이의 짧은 머리",                    basic: true}
+    - {key: bob,        name: 단발,            desc: "턱~목 길이, 앞머리 없음",                       basic: true}
+    - {key: bob_bang,   name: 앞머리 단발,     desc: "턱~목 길이, 앞머리 있음",                       basic: true}
+    - {key: long,       name: 긴 머리,         desc: "중단발·장발 (어깨 아래), 앞머리 없음",          basic: true}
+    - {key: long_bang,  name: 앞머리 긴 머리,  desc: "중단발·장발 (어깨 아래), 앞머리 있음",          basic: true}
+
+# 트렌드 스타일 (2025~2026 국내 매거진 기준, 출처: docs/[15]). 한국인 정면 참조 사진이 아직 없어 화면에 내보내지 않는다.
+# 사진을 data/hair_refs/<성별>/<key>/ 에 넣은 뒤 위 styles 로 옮기면 화면에 나온다.
+trend_styles:
+  M:
+    - {key: dandy,      name: 댄디컷,          desc: "옆머리를 자연스럽게 살린 클래식 짧은 머리",   khair: [댄디, 댄디컷]}
+    - {key: leaf,       name: 리프컷,          desc: "앞머리가 가르마 따라 흘러내림, 볼륨 낮게",     khair: [리프, 리프컷]}
+    - {key: shadow,     name: 쉐도우펌,        desc: "잔머리를 살린 내추럴 펌",                      khair: [쉐도우, 쉐도우펌]}
+    - {key: as_perm,    name: 애즈펌,          desc: "앞머리를 내려 이마 일부를 가림",               khair: [애즈, 애즈펌]}
+    - {key: part_perm,  name: 가르마펌,        desc: "가르마를 타서 이마를 드러냄",                  khair: [가르마, 가르마펌]}
+    - {key: crop,       name: 텍스처 크롭컷,   desc: "짧은 크롭에 층과 결 (옆은 투블럭·페이드)",     khair: [크롭, 투블럭, 스포츠]}
+    - {key: boy_bang,   name: 보이뱅(덮머),    desc: "앞머리를 덮은 짧은 머리",                      khair: [보울, 덮머]}
+    - {key: soft_mullet, name: 소프트 멀릿,    desc: "뒷머리가 긴 세미 샤기",                        khair: [멀릿, 샤기, 리젠트]}
+  F:
+    - {key: long_layer, name: 롱 레이어드컷,   desc: "가볍고 다양한 층",                             khair: [레이어드, 롱]}
+    - {key: hush,       name: 허쉬컷,          desc: "층을 크게 낸 컷에 C·S컬",                      khair: [허쉬, 샤기]}
+    - {key: tassel,     name: 태슬컷,          desc: "끝이 가벼운 단발",                             khair: [태슬, 단발]}
+    - {key: c_bob,      name: C컬 단발,        desc: "턱선에서 C컬로 마무리",                        khair: [보브, 단발]}
+    - {key: italian_bob, name: 이탈리안 보브,  desc: "어깨 아래 둥근 중단발",                        khair: [중단발, 보브]}
+    - {key: hippie,     name: 히피펌,          desc: "뿌리부터 작은 S컬, 볼륨 큼",                   khair: [히피]}
+    - {key: wave,       name: 젤리펌·물결펌,   desc: "규칙적인 큰 S컬",                              khair: [물결, 웨이브]}
+    - {key: elizabeth,  name: 엘리자벳펌,      desc: "굵은 웨이브와 볼륨",                           khair: [엘리자벳, 글램, 빌드]}
+
+# hex = 대표 모발색 근사값 (실측 아님). 머리 영역을 이 색 평균이 되게 칠한다 (src/hair_color.py).
+colors:
+  - {key: natural_black, name: 자연 흑발,     hex: "#1C1A19"}
+  - {key: soft_black,    name: 소프트 블랙,   hex: "#2B2523"}
+  - {key: dark_brown,    name: 다크 브라운,   hex: "#3B2A20"}
+  - {key: deep_ash,      name: 딥 애쉬 브라운, hex: "#3E3833"}
+  - {key: mocha,         name: 모카 브라운,   hex: "#6A4E3B"}
+  - {key: matte,         name: 매트(올리브) 브라운, hex: "#5E5444"}
+  - {key: ash_brown,     name: 애쉬 브라운,   hex: "#6B5A4E"}
+  - {key: khaki,         name: 카키 브라운,   hex: "#6B5E45"}
+  - {key: milk_brown,    name: 밀크 브라운,   hex: "#9C7B62"}
+  - {key: cherry,        name: 체리 브라운,   hex: "#5A2A27"}
+  - {key: wine,          name: 와인 레드,     hex: "#5C1E2B"}
+  - {key: red_purple,    name: 레드 퍼플,     hex: "#5E2440"}
+  - {key: copper,        name: 코퍼 오렌지,   hex: "#9A4E2A"}
+  - {key: ash_gray,      name: 애쉬 그레이,   hex: "#8A8784"}
+
+# 스타일마다 쓸 참조 (선정본). 목록이 있는 스타일은 이 사진만 쓴다 (모든 화면, 자동 고르기 후보도 이 안에서).
+# 얼굴 분할로 품질을 재서(배경 어두움·머리 결·고개 방향·위 잘림·가림) 규칙을 통과한 것 중 점수 상위 3장. 근거: docs/[20] 2장
+#   다시 고르기: python scripts/hair_ref_quality.py  → experiments/hair_ref_quality/selected.yaml 을 여기에 붙여 넣는다
+selected_refs:
+  F/bob:
+    - aihub_0147_1997_18_00000040_D.png
+    - aihub_0798_1981_36_00000013_D.png
+    - aihub_0593_2000_19_00000010_D.png
+  F/bob_bang:
+    - aihub_0201_1992_24_00000045_D.png
+    - aihub_0225_1996_23_00000045_D.png
+    - aihub_0518_2001_18_00000030_D.png
+  F/long:
+    - aihub_0178_1999_22_00000044_D.png
+    - aihub_0229_2003_19_00000039_D.png
+    - aihub_0156_2001_18_00000030_D.png
+  F/long_bang:
+    - aihub_0514_2001_19_00000035_D.png
+    - aihub_0600_2000_23_00000050_D.png
+    - aihub_0115_1982_39_00000045_D.png
+  F/short:
+    - aihub_0764_1984_39_00000011_D.png
+    - aihub_0757_1977_40_00000012_D.png
+    - aihub_0232_1972_39_00000020_D.png
+  M/buzz:
+    - aihub_0552_1998_23_00000042_D.png
+    - aihub_0710_1996_26_00000017_D.png
+    - aihub_0476_1982_37_00000041_D.png
+  M/short:
+    - aihub_0193_2003_20_00000048_D.png
+    - aihub_0718_1986_37_00000014_D.png
+    - aihub_0006_1992_26_00000064_D.png
+  M/short_bang:
+    - aihub_0001_1992_29_00000074_D.png
+    - aihub_0204_1996_24_00000046_D.png
+    - aihub_0493_1996_21_00000041_D.png
+
+# 참조에서 뺄 사진 (selected_refs 가 없는 스타일에 적용). 머리를 물체가 가리는 등 HairFastGAN 결과가 일그러지는 사진.
+# 품질 규칙에 걸리는 참조는 따로 적지 않아도 자동 고르기에서 건너뛴다 (src/hair_fit.py quality_fails).
+exclude_refs:
+  - M/short_bang/aihub_0585_1999_19_00000010_D.png   # 머리 위를 검은 물체가 가림 → 결과에 하얀 줄무늬 (dark_bg 0.36)
+  - M/short_bang/aihub_0328_1993_19_00000034_D.png   # 머리가 결 없는 검은 덩어리 → 헬멧처럼 부풂 (sharp 1.5)

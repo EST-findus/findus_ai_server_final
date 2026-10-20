@@ -1,0 +1,53 @@
+# 서버 나이 변환 설정. ai_lab 최종 모델(configs/final.yaml)에서 가족 데이터로 학습한 LoRA 두 개를 빼고,
+# SAM 나이 인코더를 전체 튜닝한 가중치(best_encoder.pt)로 바꾼 조합 (2026-10-20).
+#  - 복원(CodeFormer)·업스케일 끔: best11 에서 둘 다 신원을 깎았다. dev 확인은 docs/[15]
+#  - 흑백 컬러화: CodeFormer 얼굴 컬러화 (눈으로 봤을 때 자연스러움, 신원 유지 1위. ΔE 는 DDColor artistic 이 1위, docs/[15]·[23])
+#    모델 안에서 복원도 일어나지만 색(a·b)만 쓰고 밝기는 원본 유지 → 얼굴 모양·화질은 그대로
+#  - 나이 변환: SAM + 나이 인코더 전체 튜닝(best_encoder.pt) + 성별 보정 (방향 + 그림 보고 고치기, sex 는 요청에서 받는다)
+#    뺀 것: latent 어댑터(kin_latent_v3, 부모 조건), 재구성 인코더 LoRA(recon_lora_true). 둘 다 가족 데이터로 학습
+#  - 머리: 화면에서 고른 스타일(HairFastGAN) + 색(머리 영역 Lab 칠하기, src/hair_color.py)
+
+device: cuda
+keep_loaded: false
+
+detector:
+  name: retinaface
+  threshold: 0.9
+  max_side: 1024
+
+pre_upscale:
+  name: none
+
+colorizer:
+  name: codeformer_color   # 이전: ddcolor (model: ddcolor_artistic)
+  when: auto
+  gray_threshold: 3.0
+
+restorer:
+  name: none
+  position: before
+
+aging:
+  name: sam
+  target_ages: [20, 30, 40, 50]
+  show_recon: false
+  adapter: null
+  encoder_lora: null
+  encoder_full: weights/sam/best_encoder.pt   # SAM 나이 인코더(4채널 입력) 전체 교체. step 300 (ai_lab 의 sam_encoder_full_ft.pt 와 같은 가중치)
+  params:
+    strength: 1.0
+    coarse: 1.0
+    medium: 1.0
+    fine: 1.0
+    randomize_noise: false
+    sex: null              # M | F | null. 화면에서 고르면 덮어쓴다
+    gender_strength: 2.0   # dev: 1 → 뒤바뀜 30%, 2 → 24%, 3 → 22% (신원 유지 0.95 → 0.92)
+    gender_dir: weights/kin/gender_dir.pt  # 성별 방향 (0~7층). 나이 성분 뺀 것·12층은 dev 에서 더 나쁨 (docs/[28])
+    gender_refine: true    # 방향 보정 뒤 그림을 보고 IR-SE50 성별 판정기로 몇 번 더 고침. dev 뒤바뀜 24% → 21%, CLIP 10% → 4.5%
+
+post_upscale:
+  name: none
+
+evaluators:
+  - name: arcface
+  - name: adaface

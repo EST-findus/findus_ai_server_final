@@ -1,0 +1,49 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ── 외부 저장소·가중치 (scripts/sync_assets.py 로 ai_lab 에서 복사) ──
+third_party/
+weights/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+*.npy
+*.npz
+
+# ── 얼굴 사진 (AI Hub 재배포 금지, 사용자 사진) ──
+data/
+outputs/
+# 시험용 사진(kid.jpg 등)이 아무 데나 놓여도 올라가지 않게 이미지는 통째로 막는다.
+# 꼭 필요한 이미지(아이콘 등)는 아래처럼 예외로 푼다: !app/static/*.svg
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.bmp
+*.gif
+*.heic
+*.zip
+*.tar
+*.tar.gz
+
+# ── 도구 / OS ──
+.claude/settings.local.json
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+*.log
