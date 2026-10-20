@@ -28,6 +28,9 @@ ftfy
 regex
 dill
 
+# 가중치 받기 (scripts/download_assets.py)
+gdown==5.2.0
+
 # 서버
 fastapi==0.115.6
 pydantic==2.10.6
