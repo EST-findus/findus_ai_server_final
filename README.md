@@ -20,9 +20,10 @@ pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorc
 pip install -r requirements.txt
 pip install --no-build-isolation --no-deps git+https://github.com/openai/CLIP.git
 
-# ai_lab 에서 가중치(2.8GB)·외부 코드(6.1GB)·머리 참조 사진 복사 (git 에 없는 것들)
-python scripts/sync_assets.py                # ai_lab 이 옆 폴더(../ai_lab)에 있을 때
-python scripts/sync_assets.py --check        # 빠진 것만 확인
+# git 에 없는 외부 코드·가중치·참조 사진 채우기 (자세히: docs/[02]_구축_가이드.md, AI 에이전트용 프롬프트 포함)
+python scripts/sync_assets.py                # ai_lab 이 옆 폴더(../ai_lab)에 있을 때: 전부 복사
+#   다른 PC: git clone 3개 → python scripts/patch_third_party.py → python scripts/download_assets.py → 비공개 3가지 직접 복사
+python scripts/check_setup.py                # 다 갖춰졌는지 확인
 ```
 
 ai_lab 의 `.venv` 를 그대로 써도 된다: `..\ai_lab\.venv\Scripts\python -m app`
@@ -80,7 +81,7 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 | `app/` | FastAPI 서버, `static/` 시험 페이지 (`aging.html` 나이 변환, `post.html` 후처리, 공통 `common.css`·`common.js`) | O |
 | `src/` | ai_lab/src 모델 코드 (복사, 고치지 않음) | O |
 | `configs/` | `final.yaml` (나이 변환 조합), `hair_presets.yaml` (ai_lab 과 같은 파일) | O |
-| `scripts/` | `sync_assets.py` | O |
+| `scripts/` | `sync_assets.py`(ai_lab 에서 복사), `download_assets.py`(공개 가중치 받기), `patch_third_party.py`(Windows 패치), `check_setup.py`(점검) | O |
 | `weights/`, `third_party/` | 가중치, SAM·CodeFormer·HairFastGAN | X |
 | `data/hair_refs/` | 머리 참조 사진 (AI Hub, 재배포 금지) | X |
 | `outputs/` | 요청 결과 (얼굴 사진) | X |
