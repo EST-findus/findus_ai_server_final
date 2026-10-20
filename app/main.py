@@ -206,6 +206,7 @@ STATIC = Path(__file__).with_name("static")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+@app.get("/", include_in_schema=False)
 @app.get("/test", include_in_schema=False)
 def test_page():
     return RedirectResponse("/test/aging")
