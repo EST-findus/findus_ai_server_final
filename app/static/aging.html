@@ -34,9 +34,11 @@
           <label><input type="radio" name="ag-sex" value="F"><span>여</span></label>
         </div>
       </div>
+      <label class="f"><span>나이 변환 강도 <b id="ag-strength-v">1.0</b></span><input id="ag-strength" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="ag-strength-hint"></label>
       <label class="f"><span>성별 보정 세기 <b id="ag-gs-v">2.0</b></span><input id="ag-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
       <button id="ag-run">나이 변환</button>
     </div>
+    <p id="ag-strength-hint" class="hint">나이 변환 강도: 0은 나이 변화 끄기, 1은 기본, 2는 강하게. 0에서도 얼굴 재구성과 성별 보정은 적용됩니다.</p>
     <div id="ag-status" class="status"></div>
   </section>
 
@@ -61,6 +63,7 @@ $('ag-image').addEventListener('change', e => {
   const f = e.target.files[0];
   if (f) { $('ag-preview').src = URL.createObjectURL(f); $('ag-preview').style.display = 'block'; }
 });
+$('ag-strength').addEventListener('input', e => $('ag-strength-v').textContent = Number(e.target.value).toFixed(1));
 $('ag-gs').addEventListener('input', e => $('ag-gs-v').textContent = Number(e.target.value).toFixed(1));
 
 function addRun(res, file) {
@@ -71,7 +74,7 @@ function addRun(res, file) {
   const head = document.createElement('div');
   head.className = 'run-head';
   const sexTxt = res.sex === 'F' ? '여' : '남';
-  head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · 성별 보정 ${res.extra.gender_strength}` +
+  head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)} · 성별 보정 ${res.extra.gender_strength}` +
                    (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
   const go = document.createElement('button');
   go.className = 'small';
@@ -97,6 +100,7 @@ $('ag-run').addEventListener('click', async () => {
   form.append('image', f);
   form.append('ages', $('ag-ages').value);
   form.append('sex', radio('ag-sex'));
+  form.append('strength', $('ag-strength').value);
   form.append('gender_strength', $('ag-gs').value);
   busy('ag', true, '나이 변환 중');
   try {

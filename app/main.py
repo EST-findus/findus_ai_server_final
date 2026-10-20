@@ -108,6 +108,8 @@ def _result(meta: dict, seconds: float, info: Optional[dict] = None, extra: Opti
 def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화)"),
           ages: str = Form(..., description="목표 나이. 하나(30) 또는 쉼표로 여러 개(20,30,40)", examples=["20,30,40"]),
           sex: str = Form(..., description="M | F. 결과의 성별이 뒤바뀌지 않게 보정한다"),
+          strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False,
+                                 description="나이 변환 강도 (0~2, 기본 1). 0은 나이 변화만 끄며 얼굴 재구성·성별 보정은 적용된다"),
           gender_strength: float = Form(2.0, ge=0, le=5, description="성별 보정 세기 (0 = 끔, 기본 2)")):
     try:
         age_list = sorted({int(a) for a in ages.replace(" ", "").split(",") if a})
@@ -118,8 +120,8 @@ def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (j
     sex = _sex(sex)
     img = _decode(image)
     t0 = time.time()
-    images, extra = engine.age(img, age_list, sex, gender_strength)
-    extra.update(ages=age_list, gender_strength=gender_strength)
+    images, extra = engine.age(img, age_list, sex, gender_strength, strength=strength)
+    extra.update(ages=age_list, strength=strength, gender_strength=gender_strength)
     meta = store.save("aging", images, sex, **extra)
     store.cleanup()
     return _result(meta, time.time() - t0, extra=extra)

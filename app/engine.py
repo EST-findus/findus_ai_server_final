@@ -122,11 +122,11 @@ class Engine:
 
     # ---------------------------------------------------------------- 1. 나이 변환
 
-    def age(self, img: np.ndarray, ages: List[int], sex: str, gender_strength: float) -> tuple:
+    def age(self, img: np.ndarray, ages: List[int], sex: str, gender_strength: float, strength: float = 1.0) -> tuple:
         """아이 사진 → {'age30': 얼굴, ...} (FFHQ 정렬 1024), 정보.
         흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더 best_encoder.pt) + 성별 보정."""
         cfg = config()
-        cfg["aging"]["params"].update(sex=sex, gender_strength=float(gender_strength))
+        cfg["aging"]["params"].update(sex=sex, strength=float(strength), gender_strength=float(gender_strength))
         cfg["evaluators"] = []  # 서버에서는 채점하지 않는다 (실제 성인 사진이 없음)
         with self.gpu():
             self._free_hair()

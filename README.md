@@ -82,6 +82,8 @@ curl localhost:8000/v1/hair/styles
 curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.png
 ```
 
+나이 변환 강도는 시험 페이지의 슬라이더 또는 `/v1/aging`의 `strength`로 조절한다 (`0~2`, 기본 `1`, 예: `-F strength=0.8`). 목표 나이와 별도로 변환 세기를 조절하며, `0`에서는 나이 변화만 끄고 얼굴 재구성과 성별 보정은 적용한다. 응답의 `extra.strength`와 결과 정보에 사용한 강도를 남긴다.
+
 ## 처리 시간 (RTX 1000 Ada 6GB, 사진 1장)
 
 | 요청 | 시간 |
