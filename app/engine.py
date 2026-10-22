@@ -22,7 +22,7 @@ from src.hair_color import HairMask, hair_delta_e, recolor
 from src.hairstyle import HairPost, hair_only
 from src.pipeline import Pipeline, imread_rgb, imwrite_rgb
 
-from .settings import CONFIG, ENCODER_DIR, HAIR_PRESETS, HAIR_REFS, QUEUE_TIMEOUT
+from .settings import CONFIG, ENCODER_DIR, HAIR_PRESETS, HAIR_REFS, QUEUE_TIMEOUT, SAM_BASE
 
 HAIR_ALIGNED = HAIR_REFS / "_aligned"    # 참조 사진 FFHQ 정렬 캐시
 HAIR_THUMBS = HAIR_REFS / "_hair_only"   # 목록 화면용 썸네일 (참조 속 얼굴은 지우고 머리만)
@@ -54,8 +54,9 @@ def default_encoder() -> str:
 
 
 def encoders() -> List[str]:
-    """weights/sam/encoders/ 에 넣은 나이 인코더 파일 이름."""
-    return sorted(p.name for p in ENCODER_DIR.glob("*.pt")) if ENCODER_DIR.is_dir() else []
+    """weights/sam/ 에 넣은 나이 인코더 파일 이름. SAM 본체와 기본 인코더(화면에 '(기본)'으로 따로 나옴)는 뺀다."""
+    skip = {SAM_BASE, default_encoder()}
+    return sorted(p.name for p in ENCODER_DIR.glob("*.pt") if p.name not in skip) if ENCODER_DIR.is_dir() else []
 
 
 def style_refs(sex: str, key: str) -> List[str]:
@@ -138,7 +139,7 @@ class Engine:
             encoder: Optional[str] = None) -> tuple:
         """아이 사진 → {'age30': 얼굴, ...} (FFHQ 정렬 1024), 정보.
         흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더) + 성별 보정.
-        encoder: weights/sam/encoders/ 의 파일 이름. 비우면 configs/final.yaml 의 기본(best_encoder.pt)."""
+        encoder: weights/sam/ 의 파일 이름. 비우면 configs/final.yaml 의 기본(best_encoder.pt)."""
         cfg = config()
         cfg["aging"]["params"].update(sex=sex, strength=float(strength), gender_strength=float(gender_strength))
         cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]  # AdaFace 는 서버에 코드·가중치가 없다

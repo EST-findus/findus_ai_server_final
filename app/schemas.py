@@ -25,7 +25,7 @@ class ResultOut(BaseModel):
 
 class EncodersOut(BaseModel):
     default: str = Field(description="encoder 를 비웠을 때 쓰는 나이 인코더 (configs/final.yaml)")
-    encoders: List[str] = Field(description="weights/sam/encoders/ 에 넣은 파일 이름. POST /v1/aging 의 encoder 로 고른다")
+    encoders: List[str] = Field(description="weights/sam/ 에 넣은 파일 이름 (SAM 본체·기본 제외). POST /v1/aging 의 encoder 로 고른다")
 
 
 class HairStyle(BaseModel):
