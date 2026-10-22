@@ -3,7 +3,7 @@
     .venv\\Scripts\\python scripts\\check_workbench.py
 
 확인하는 것: 원본 조회 중계, 생성만 하면 저장 안 됨, origin 기록·상속, 선택한 결과만 저장(재요청 200),
-업로드 결과는 저장 거절, 다른 사이트 요청 403, Java 가 꺼졌을 때 502.
+업로드 결과는 저장 거절, 다른 사이트 요청 403, 다른 PC 요청은 WORKBENCH_REMOTE+API_KEY 일 때만, Java 가 꺼졌을 때 502.
 """
 import email
 import email.policy
@@ -91,7 +91,7 @@ class FakeJava(BaseHTTPRequestHandler):
 JAVA_PORT, APP_PORT = free_port(), free_port()
 os.environ["JAVA_API_URL"] = f"http://127.0.0.1:{JAVA_PORT}"
 os.environ["OUTPUT_DIR"] = tempfile.mkdtemp(prefix="workbench-check-")
-os.environ.pop("API_KEY", None)
+os.environ["API_KEY"] = os.environ["WORKBENCH_REMOTE"] = ""  # 빈 값이라도 정해 두면 개발자 .env 가 덮지 않는다
 
 from app import main, store  # noqa: E402  (환경 변수를 먼저 정해야 설정에 반영된다)
 
@@ -201,6 +201,22 @@ class WorkbenchCheck(unittest.TestCase):
         status, _ = call("POST", "/v1/workbench/saves", form, {"Origin": f"http://127.0.0.1:{APP_PORT}"})
         self.assertEqual(status, 201)
         self.assertNotIn("Origin", FakeJava.requests[-1][2])  # Java 로는 브라우저 헤더를 넘기지 않는다
+
+    def test_다른_PC_요청은_설정과_키가_있어야_받는다(self):
+        far = {"X-Forwarded-For": "203.0.113.5"}  # Cloudflare 터널로 들어온 요청처럼 (uvicorn 이 127.0.0.1 의 이 헤더를 믿는다)
+        path = "/v1/workbench/persons?page=0&size=12"
+        old = (main.WORKBENCH_REMOTE, main.API_KEY)
+        try:
+            main.WORKBENCH_REMOTE, main.API_KEY = False, "k"
+            self.assertEqual(call("GET", path, headers={**far, "X-API-Key": "k"})[0], 403)  # 설정 꺼짐
+            main.WORKBENCH_REMOTE, main.API_KEY = True, None
+            self.assertEqual(call("GET", path, headers=far)[0], 403)                        # 키를 안 정함
+            main.API_KEY = "k"
+            self.assertEqual(call("GET", path, headers=far)[0], 401)                        # 키 없이
+            self.assertEqual(call("GET", path, headers={**far, "X-API-Key": "x"})[0], 401)  # 틀린 키
+            self.assertEqual(call("GET", path, headers={**far, "X-API-Key": "k"})[0], 200)  # 설정 + 키
+        finally:
+            main.WORKBENCH_REMOTE, main.API_KEY = old
 
     def test_Java_가_꺼져_있으면_502(self):
         old = main.java_client.JAVA_API_URL

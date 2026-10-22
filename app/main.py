@@ -35,11 +35,14 @@ from . import java_client, store  # noqa: E402
 from .engine import (BadInput, Busy, NotReady, default_encoder, encoders, engine, presets, resolve_color,  # noqa: E402
                      style_refs)
 from .schemas import EncodersOut, GlassesStylesOut, HairStylesOut, HealthOut, ResultOut  # noqa: E402
-from .settings import API_KEY, CONFIG, CORS_ORIGINS, MAX_AGES, MAX_UPLOAD_MB, ROOT as APP_ROOT  # noqa: E402
+from .settings import (API_KEY, CONFIG, CORS_ORIGINS, MAX_AGES, MAX_UPLOAD_MB, ROOT as APP_ROOT,  # noqa: E402
+                       WORKBENCH_REMOTE)
 
 
 @asynccontextmanager
 async def lifespan(_):
+    if WORKBENCH_REMOTE and not API_KEY:
+        print("[경고] WORKBENCH_REMOTE=true 지만 API_KEY 가 없어 DB 원본 작업은 계속 이 PC 에서만 열립니다.")
     store.cleanup()
     yield
 
@@ -228,9 +231,12 @@ def result_image(result_id: str, key: str):
 # ---------------------------------------------------------------- 4. DB 원본 작업 (Java 연동)
 
 def local_only(request: Request):
-    """이 PC 에서, 이 서버가 띄운 화면에서 온 요청만. 다른 웹사이트가 몰래 저장 요청을 보내지 못하게 한다."""
-    if (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "localhost"):
-        raise HTTPException(403, "이 PC 에서만 쓸 수 있습니다.")
+    """이 PC 에서, 이 서버가 띄운 화면에서 온 요청만. 다른 웹사이트가 몰래 저장 요청을 보내지 못하게 한다.
+    WORKBENCH_REMOTE=true 이고 API_KEY 를 정했으면 다른 PC 도 받는다 (키는 앞의 check_key 가 이미 확인함)."""
+    remote = (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "localhost")
+    if remote and not (WORKBENCH_REMOTE and API_KEY):
+        raise HTTPException(403, "이 PC 에서만 쓸 수 있습니다. 다른 PC 에서 쓰려면 서버에 "
+                                 "WORKBENCH_REMOTE=true 와 API_KEY 를 함께 정하세요 (.env.example).")
     origin = request.headers.get("origin")
     if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
         raise HTTPException(403, "다른 사이트에서 온 요청은 받지 않습니다.")
