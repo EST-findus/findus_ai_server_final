@@ -14,3 +14,5 @@ MAX_UPLOAD_MB = float(os.getenv("MAX_UPLOAD_MB", "15"))
 MAX_AGES = int(os.getenv("MAX_AGES", "5"))                        # 한 번에 만들 수 있는 나이 개수
 API_KEY = os.getenv("API_KEY") or None                            # 정하면 X-API-Key 헤더가 맞아야 한다
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
+JAVA_API_URL = os.getenv("JAVA_API_URL", "http://127.0.0.1:18080").rstrip("/")  # 실종아동 DB 를 가진 Java 백엔드 (작업 화면 전용)
+JAVA_TIMEOUT = float(os.getenv("JAVA_TIMEOUT", "30"))                              # Java 요청 최대 대기(초)

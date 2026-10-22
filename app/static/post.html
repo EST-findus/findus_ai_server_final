@@ -10,7 +10,7 @@
 <body>
 <header>
   <h1>얼굴 변환 API 시험</h1>
-  <nav><a href="/test/aging">① 나이 변환</a><a href="/test/post" class="on">② 후처리 (머리·화장·안경)</a></nav>
+  <nav><a href="/test/aging">① 나이 변환</a><a href="/test/post" class="on">② 후처리 (머리·화장·안경)</a><a href="/test/workbench">③ DB 원본 작업</a></nav>
   <div class="row" style="margin:0">
     <span id="health" class="status">서버 확인 중…</span>
     <label class="f">API 키 (정했을 때만)<input id="apikey" type="password" placeholder="X-API-Key"></label>
@@ -324,9 +324,10 @@ function addRun(res) {
     b.className = 'small ghost';
     b.textContent = '이걸 기준으로';
     b.addEventListener('click', () => { loadBase(res.result_id, im.key); window.scrollTo({ top: 0, behavior: 'smooth' }); });
-    return [b];
+    return [b, saveButton(res, im)].filter(Boolean);  // DB 원본에서 이어진 결과만 저장 버튼이 붙는다
   }));
   box.prepend(run);
+  if (res.origin) refreshSaved(res.result_id, run);
 }
 
 // ---------------------------------------------------------------- 시작

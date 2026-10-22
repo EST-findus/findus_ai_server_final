@@ -6,6 +6,7 @@
 
 키는 나이 변환이면 'age30' 처럼 나이, 올린 사진에 바로 머리를 입히면 'face'.
 다음 단계(머리 → 안경)는 이전 결과의 result_id 를 받아 그 이미지들 위에 쌓는다.
+DB 원본으로 만든 결과는 meta 에 origin(아동·원본 사진 id)을 남기고, 이어서 만든 결과는 origin 을 물려받는다.
 """
 import json
 import re
@@ -40,6 +41,10 @@ def _dir(result_id: str) -> Path:
 
 def save(kind: str, images: Dict[str, np.ndarray], sex: Optional[str], parent_id: Optional[str] = None,
          **extra) -> dict:
+    if parent_id and "origin" not in extra:  # 머리·안경을 이어 붙여도 최초 DB 원본 연결을 잃지 않게
+        origin = _origin_of(parent_id)
+        if origin:
+            extra["origin"] = origin
     rid = new_id()
     d = OUTPUT_DIR / rid
     d.mkdir(parents=True, exist_ok=True)
@@ -63,6 +68,10 @@ def meta(result_id: str) -> dict:
     return json.loads(f.read_text(encoding="utf-8"))
 
 
+def _origin_of(result_id: str) -> Optional[dict]:
+    return meta(result_id).get("origin")
+
+
 def image_path(result_id: str, key: str) -> Path:
     if not KEY_RE.fullmatch(key or ""):
         raise NotFound(f"잘못된 이미지 키: {key}")
@@ -80,6 +89,23 @@ def load_images(result_id: str, keys=None) -> Dict[str, np.ndarray]:
         p = image_path(result_id, k)
         out[k] = cv2.cvtColor(cv2.imdecode(np.fromfile(str(p), np.uint8), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
     return out
+
+
+_BASE_KEYS = {"result_id", "kind", "parent_id", "sex", "created", "images", "origin"}
+
+
+def lineage(result_id: str) -> list:
+    """처음 단계부터 이 결과까지 [{result_id, kind, options}]. 지워진 앞 단계는 빠진다."""
+    chain, rid = [], result_id
+    while rid:
+        try:
+            m = meta(rid)
+        except NotFound:
+            break
+        chain.append({"result_id": rid, "kind": m["kind"],
+                      "options": {k: v for k, v in m.items() if k not in _BASE_KEYS}})
+        rid = m.get("parent_id")
+    return chain[::-1]
 
 
 def cleanup():

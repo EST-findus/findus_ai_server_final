@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DB 원본 작업</title>
+<link rel="stylesheet" href="/static/common.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<header>
+  <h1>얼굴 변환 API 시험</h1>
+  <nav><a href="/test/aging">① 나이 변환</a><a href="/test/post">② 후처리 (머리·화장·안경)</a><a href="/test/workbench" class="on">③ DB 원본 작업</a></nav>
+  <div class="row" style="margin:0">
+    <span id="health" class="status">서버 확인 중…</span>
+    <label class="f">API 키 (정했을 때만)<input id="apikey" type="password" placeholder="X-API-Key"></label>
+    <a href="/docs" target="_blank" class="status">Swagger 문서 ↗</a>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>DB 원본 선택 <span class="tag">Java GET /api/missing-persons</span></h2>
+    <p class="hint">실종아동 DB 의 원본 사진으로 나이 변환을 하고, 고른 결과만 DB 에 저장한다. 생성만 해서는 DB 에 아무것도 저장되지 않는다.</p>
+    <div class="row">
+      <button id="pg-prev" class="ghost small">← 이전</button>
+      <span id="pg-info" class="status"></span>
+      <button id="pg-next" class="ghost small">다음 →</button>
+    </div>
+    <div id="people" class="people"><span class="status">불러오는 중…</span></div>
+    <div id="pp-status" class="status" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:12px"><div class="f">원본 사진 (눌러서 고르기)<div id="originals" class="thumbs"><span class="status">아동을 고르세요</span></div></div></div>
+  </section>
+
+  <section>
+    <h2>나이 변환 <span class="tag">POST /v1/workbench/aging</span></h2>
+    <p id="wb-target" class="hint">아동과 원본 사진을 먼저 고르세요.</p>
+    <div class="row">
+      <label class="f">목표 나이 (쉼표로 여러 개, 최대 5개)<input id="wb-ages" type="text" value="20,30,40"></label>
+      <div class="f">성별
+        <div class="seg">
+          <label><input type="radio" name="wb-sex" value="M" checked><span>남</span></label>
+          <label><input type="radio" name="wb-sex" value="F"><span>여</span></label>
+        </div>
+      </div>
+      <label class="f"><span>나이 변환 강도 <b id="wb-strength-v">1.0</b></span><input id="wb-strength" type="range" min="0" max="2" step="0.1" value="1"></label>
+      <label class="f"><span>성별 보정 세기 <b id="wb-gs-v">2.0</b></span><input id="wb-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
+      <button id="wb-run">나이 변환</button>
+    </div>
+    <div id="wb-status" class="status"></div>
+  </section>
+
+  <section>
+    <h2>결과 <span class="tag">최신이 위</span></h2>
+    <p class="hint">마음에 드는 사진의 "선택한 결과 저장" 을 누르면 확인 후 DB 에 저장한다. "후처리로 →" 에서 머리를 바꾼 결과도 같은 원본에 연결되어 저장할 수 있다.<br><span id="ttl-note"></span></p>
+    <div id="wb-runs"><span class="status">아직 없음</span></div>
+  </section>
+
+  <section>
+    <h2>이 아동의 저장된 사진 <span class="tag">DB</span></h2>
+    <div id="saved"><span class="status">아동을 고르세요</span></div>
+  </section>
+
+  <section>
+    <h2>마지막 응답</h2>
+    <pre id="raw">아직 없음</pre>
+  </section>
+</main>
+
+<script src="/static/common.js"></script>
+<script>
+initApiKey();
+initHealth();
+$('ttl-note').textContent = TTL_NOTE;
+
+const PAGE_SIZE = 12;
+let page = 0, totalPages = 1, current = null, sourceId = null;
+
+$('wb-strength').addEventListener('input', e => $('wb-strength-v').textContent = Number(e.target.value).toFixed(1));
+$('wb-gs').addEventListener('input', e => $('wb-gs-v').textContent = Number(e.target.value).toFixed(1));
+
+const sexOf = s => /^(여|F)/i.test(s || '') ? 'F' : /^(남|M)/i.test(s || '') ? 'M' : null;
+const ageText = p => [p.age != null && `당시 ${p.age}세`, p.ageNow != null && `현재 ${p.ageNow}세`].filter(Boolean).join(' · ');
+
+// ---------------------------------------------------------------- 아동 목록 (페이지)
+async function loadPage(n) {
+  try {
+    const res = await api(`/v1/workbench/persons?page=${n}&size=${PAGE_SIZE}`);
+    page = res.page; totalPages = Math.max(res.totalPages, 1);
+    $('pg-info').textContent = `${page + 1} / ${totalPages} 쪽 · 전체 ${res.totalElements}명`;
+    $('pg-prev').disabled = page <= 0;
+    $('pg-next').disabled = page + 1 >= totalPages;
+    const box = $('people');
+    box.innerHTML = res.content.length ? '' : '<span class="status">공개 중인 실종아동이 없습니다. Java 에서 동기화를 먼저 하세요.</span>';
+    for (const p of res.content) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.id = p.id;
+      const name = document.createElement('b');
+      name.textContent = p.name;  // DB 값은 글자로만 넣는다
+      const meta = document.createElement('span');
+      meta.className = 'status';
+      meta.textContent = [p.sex, ageText(p), p.occurrenceDate].filter(Boolean).join(' · ');
+      b.append(name, meta);
+      b.classList.toggle('on', current && current.id === p.id);
+      b.addEventListener('click', () => selectPerson(p.id));
+      box.append(b);
+    }
+    done('pp', '');
+  } catch (e) {
+    $('people').innerHTML = '';
+    done('pp', e.message.startsWith('502') ? e.message + ' · Java 백엔드를 켜세요.' : e.message, false);
+  }
+}
+$('pg-prev').addEventListener('click', () => loadPage(page - 1));
+$('pg-next').addEventListener('click', () => loadPage(page + 1));
+
+// ---------------------------------------------------------------- 아동·원본 선택
+async function selectPerson(id) {
+  try {
+    current = await api(`/v1/workbench/persons/${id}`);
+  } catch (e) { return done('pp', e.message, false); }
+  sourceId = null;
+  document.querySelectorAll('#people button').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+  const sex = sexOf(current.sex);
+  if (sex) setRadio('wb-sex', sex);
+  const box = $('originals');
+  box.innerHTML = current.images.length ? '' : '<span class="status">DB 에 저장된 원본 사진이 없습니다.</span>';
+  for (const im of current.images) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = `원본 ${im.sortOrder + 1}`;
+    const img = document.createElement('img');
+    img.alt = b.title;
+    b.append(img);
+    b.addEventListener('click', () => {
+      sourceId = im.id;
+      box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      renderTarget();
+    });
+    box.append(b);
+    blobUrl(`/v1/workbench/persons/${current.id}/images/${im.id}`).then(u => img.src = u).catch(() => {});
+  }
+  if (current.images.length) box.querySelector('button').click();
+  else renderTarget();
+  loadSaved();
+}
+
+function renderTarget() {
+  const t = $('wb-target');
+  if (!current) { t.textContent = '아동과 원본 사진을 먼저 고르세요.'; return; }
+  const idx = current.images.findIndex(im => im.id === sourceId);
+  t.textContent = `아동: ${current.name}` + (ageText(current) ? ` (${ageText(current)})` : '') +
+                  ` · 원본: ${idx >= 0 ? `${idx + 1}번 사진` : '고르세요'}`;
+}
+
+// ---------------------------------------------------------------- 나이 변환
+$('wb-run').addEventListener('click', async () => {
+  if (!current || !sourceId) return done('wb', '아동과 원본 사진을 고르세요.', false);
+  const form = new FormData();
+  form.append('person_id', current.id);
+  form.append('source_image_id', sourceId);
+  form.append('ages', $('wb-ages').value);
+  form.append('sex', radio('wb-sex'));
+  form.append('strength', $('wb-strength').value);
+  form.append('gender_strength', $('wb-gs').value);
+  busy('wb', true, `${current.name} 나이 변환 중`);
+  try {
+    const res = await api('/v1/workbench/aging', form);
+    busy('wb', false);
+    done('wb', `완료 ${res.seconds}초 · result_id ${res.result_id} · 아직 DB 에 저장하지 않았습니다`);
+    remember(res);
+    addRun(res);
+  } catch (e) { busy('wb', false); done('wb', e.message, false); }
+});
+
+function addRun(res) {
+  const box = $('wb-runs');
+  if (!box.querySelector('.run')) box.innerHTML = '';
+  const run = document.createElement('div');
+  run.className = 'run';
+  const head = document.createElement('div');
+  head.className = 'run-head';
+  const who = document.createElement('b');
+  who.textContent = res.origin.person_name || res.origin.person_id;
+  const st = document.createElement('span');
+  st.className = 'status';
+  st.textContent = `${res.result_id} · ${res.seconds}초 · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)}`;
+  const go = document.createElement('button');
+  go.className = 'small ghost';
+  go.textContent = '후처리로 →';
+  go.addEventListener('click', () => location.href = `/test/post?result_id=${encodeURIComponent(res.result_id)}`);
+  head.append(who, st, go);
+  run.append(head, resultGrid(res, im => [saveButton(res, im, loadSaved)].filter(Boolean)));
+  box.prepend(run);
+  refreshSaved(res.result_id, run);
+}
+
+// ---------------------------------------------------------------- 저장된 사진 (DB)
+async function loadSaved() {
+  const box = $('saved');
+  if (!current) return;
+  try {
+    const list = await api(`/v1/workbench/saves?person_id=${current.id}`);
+    box.innerHTML = list.length ? '' : '<span class="status">아직 저장한 사진이 없습니다.</span>';
+    if (!list.length) return;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    for (const s of list) {
+      const fig = document.createElement('figure');
+      const img = document.createElement('img');
+      img.alt = `${s.targetAge}세`;
+      const cap = document.createElement('figcaption');
+      cap.innerHTML = `<b>${s.targetAge}세</b><span></span>`;
+      cap.querySelector('span').textContent = [s.savedAt && new Date(s.savedAt + 'Z').toLocaleString(), `${s.resultId}/${s.imageKey}`]
+        .filter(Boolean).join(' · ');  // savedAt 은 UTC
+      fig.append(img, cap);
+      grid.append(fig);
+      blobUrl(`/v1/workbench/ai-images/${s.aiImageId}`).then(u => img.src = u).catch(() => cap.append(' 사진을 못 받음'));
+    }
+    box.append(grid);
+  } catch (e) {
+    box.innerHTML = '';
+    const st = document.createElement('span');
+    st.className = 'status err';
+    st.textContent = e.message + (e.message.startsWith('502') ? ' · Java 를 AI_WORKBENCH_ENABLED=true 로 켰는지 확인하세요.' : '');
+    box.append(st);
+  }
+}
+
+loadPage(0);
+</script>
+</body>
+</html>

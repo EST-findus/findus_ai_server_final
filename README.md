@@ -8,6 +8,7 @@ FindUs 얼굴 변환 API 서버. `ai_lab` 의 모델 코드와 가중치를 쓴�
 | `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴 | 동작 |
 | `POST /v1/hair` | 나이 변환 결과(`result_id`) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴 | 동작 |
 | `POST /v1/glasses` | 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴 | 명세만 (501) |
+| `/v1/workbench/*` | 실종아동 DB 원본으로 나이 변환 → 고른 결과만 Java 를 거쳐 DB 저장 (시험 페이지 `/test/workbench`) | 동작 (로컬 전용) |
 
 구성·명세·근거는 [docs/[00]_서버_구성_계획.md](docs/[00]_서버_구성_계획.md).
 가중치를 직접 교체할 때는 [가중치 교체 가이드](docs/[03]_가중치_교체_가이드.md)의 백업·교체·확인·복구 순서를 따른다.
@@ -44,12 +45,25 @@ Windows에서는 저장소 폴더의 **`start_server.bat`를 더블클릭**하�
 
 ```powershell
 .\start_server.bat                            # 더블클릭과 같은 실행
-python -m app                                # 시험 페이지 http://127.0.0.1:8000/test/aging (나이 변환), /test/post (머리·화장·안경), 명세 /docs
+python -m app                                # 시험 페이지 http://127.0.0.1:8000/test/aging (나이 변환), /test/post (머리·화장·안경), /test/workbench (DB 원본 작업), 명세 /docs
 $env:PORT = "8001"; .\start_server.bat        # 포트 바꾸기
 $env:PYTHON_EXE = "D:\ai_lab\.venv\Scripts\python.exe"; .\start_server.bat  # Python 직접 지정
 ```
 
 GPU 가 6GB 하나라서 ai_lab 웹 서버(`web/server.py`)와 동시에 띄우면 메모리가 모자라 느려진다. 하나만 켠다.
+
+### DB 원본 작업 (`/test/workbench`)
+
+실종아동 DB 의 원본 사진으로 나이 변환을 하고, 마음에 드는 결과만 "선택한 결과 저장" 으로 DB 에 남긴다. 생성만 해서는 DB 에 아무것도 저장되지 않는다. 후처리(② 페이지)로 머리를 바꾼 결과도 같은 원본에 연결되어 저장할 수 있다.
+
+1. Java 백엔드(`findus-backend`)를 local 프로필로, `.env` 에 `AI_WORKBENCH_ENABLED=true` 를 넣고 실행한다. 실종아동 데이터가 없으면 Java 에서 동기화를 먼저 한다.
+2. 이 서버를 실행하고 `http://127.0.0.1:8000/test/workbench` 를 연다. Java 주소가 다르면 `JAVA_API_URL` 을 바꾼다.
+
+이 서버는 DB 접속 정보를 갖지 않고 Java API 만 부른다. 작업 API 는 이 PC 에서, 이 서버가 띄운 화면에서 온 요청만 받는다. 같은 결과(result_id + 이미지 키)를 다시 저장하면 Java 가 기존 저장 결과를 돌려주어 중복 저장되지 않는다.
+
+```powershell
+.venv\Scripts\python scripts\check_workbench.py   # GPU·Java 없이 작업 API 점검 (가짜 Java 서버 사용)
+```
 
 | 환경 변수 | 기본 | 설명 |
 |---|---|---|
@@ -61,6 +75,7 @@ GPU 가 6GB 하나라서 ai_lab 웹 서버(`web/server.py`)와 동시에 띄우�
 | `RESULT_TTL_HOURS` | `24` | 이보다 오래된 결과 삭제 (0 = 안 지움) |
 | `QUEUE_TIMEOUT` | `300` | GPU 대기 최대 초 (넘으면 503) |
 | `MAX_UPLOAD_MB` / `MAX_AGES` | `15` / `5` | 사진 크기 / 한 번에 만들 나이 개수 |
+| `JAVA_API_URL` / `JAVA_TIMEOUT` | `http://127.0.0.1:18080` / `30` | DB 원본 작업에서 부를 Java 백엔드 주소 / 대기 초 |
 
 ## 예시
 
@@ -95,10 +110,10 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 
 | 폴더 | 내용 | git |
 |---|---|---|
-| `app/` | FastAPI 서버, `static/` 시험 페이지 (`aging.html` 나이 변환, `post.html` 후처리, 공통 `common.css`·`common.js`) | O |
+| `app/` | FastAPI 서버, `java_client.py`(Java 백엔드 연동), `static/` 시험 페이지 (`aging.html` 나이 변환, `post.html` 후처리, `workbench.html` DB 원본 작업, 공통 `common.css`·`common.js`) | O |
 | `src/` | ai_lab/src 모델 코드 (복사, 고치지 않음) | O |
 | `configs/` | `final.yaml` (나이 변환 조합), `hair_presets.yaml` (ai_lab 과 같은 파일) | O |
-| `scripts/` | `sync_assets.py`(ai_lab 에서 복사), `download_assets.py`(공개 가중치 받기), `patch_third_party.py`(Windows 패치), `check_setup.py`(점검) | O |
+| `scripts/` | `sync_assets.py`(ai_lab 에서 복사), `download_assets.py`(공개 가중치 받기), `patch_third_party.py`(Windows 패치), `check_setup.py`(점검), `check_workbench.py`(DB 원본 작업 점검) | O |
 | `.runtime/`, `.venv/` | 이 PC의 Python 본체·설치용 임시 파일, 서버 가상환경 | X |
 | `weights/`, `third_party/` | 가중치, SAM·CodeFormer·HairFastGAN | X |
 | `data/hair_refs/` | 머리 참조 사진 (AI Hub, 재배포 금지) | X |
