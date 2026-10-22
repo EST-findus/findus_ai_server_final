@@ -5,7 +5,7 @@ FindUs 얼굴 변환 API 서버. `ai_lab` 의 모델 코드와 가중치를 쓴�
 
 | API | 하는 일 | 상태 |
 |---|---|---|
-| `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/encoders/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`) | 동작 |
+| `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`) | 동작 |
 | `POST /v1/hair` | 나이 변환 결과(`result_id`) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴 | 동작 |
 | `POST /v1/glasses` | 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴 | 명세만 (501) |
 | `/v1/workbench/*` | 실종아동 DB 원본으로 나이 변환 → 고른 결과만 Java 를 거쳐 DB 저장 (시험 페이지 `/test/workbench`) | 동작 (로컬 전용) |

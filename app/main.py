@@ -149,7 +149,7 @@ def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (j
     return _run_aging(_decode(image), age_list, sex, strength, gender_strength, encoder=encoder or None)
 
 
-@v1.get("/aging/encoders", response_model=EncodersOut, summary="고를 수 있는 나이 인코더 (weights/sam/encoders/)")
+@v1.get("/aging/encoders", response_model=EncodersOut, summary="고를 수 있는 나이 인코더 (weights/sam/)")
 def aging_encoders():
     return {"default": default_encoder(), "encoders": encoders()}
 
