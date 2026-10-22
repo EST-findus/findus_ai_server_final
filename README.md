@@ -120,3 +120,16 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 | `outputs/` | 요청 결과 (얼굴 사진) | X |
 
 ai_lab 에서 모델 코드나 머리 목록을 바꾸면 `src/` 해당 파일과 `configs/hair_presets.yaml` 을 다시 복사하고 `python scripts/sync_assets.py` 를 한 번 더 돌린다. `configs/final.yaml` 은 서버용 조합(LoRA 없음, best_encoder)이라 ai_lab 파일로 덮어쓰지 않는다.
+
+## 최소 사양
+
+실제로 돌려 본 건 **GPU RTX 1000 Ada 6GB** 뿐이다. RAM·디스크와 아래 다른 줄은 가중치 크기(약 11GB)와 코드 구조로 잡은 추정이며 재 보지 않았다.
+
+| 구분 | GPU | RAM | 디스크 | 비고 |
+|---|---|---|---|---|
+| 지금 코드 그대로 (확인됨) | NVIDIA VRAM 6GB, RTX 30 이후 권장 (bf16) | 16GB | SSD 30GB | 다른 GPU 프로그램과 같이 쓰면 모자람 |
+| 머리 하위 모델을 하나씩 올리면 (추정) | VRAM 4GB | 32GB | SSD 30GB | `app/` 에서 올리고 내리는 코드 추가 필요. 요청당 몇 초 느려짐 |
+| 레이어 단위로 올리면 (이론) | VRAM 약 2GB (GTX 900 이후) | 16GB 이상 | SSD 30GB | 전송이 많아 CPU 만 쓰는 것과 큰 차이 없을 수 있음 |
+| GPU 없이 CPU 만 (이론) | 없음 | 약 8GB | 20GB | `device="cuda"`·bf16 autocast·HairFastGAN `.cuda()` 수정 필요. 머리 1장에 수 분 이상 |
+
+서비스로 쓰려면 첫 줄(6GB)이 현실적인 최소다.
