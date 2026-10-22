@@ -59,23 +59,35 @@ GPU 가 6GB 하나라서 ai_lab 웹 서버(`web/server.py`)와 동시에 띄우�
 1. Java 백엔드(`findus-backend`)를 local 프로필로, `.env` 에 `AI_WORKBENCH_ENABLED=true` 를 넣고 실행한다. 실종아동 데이터가 없으면 Java 에서 동기화를 먼저 한다.
 2. 이 서버를 실행하고 `http://127.0.0.1:8000/test/workbench` 를 연다. Java 주소가 다르면 `JAVA_API_URL` 을 바꾼다.
 
-이 서버는 DB 접속 정보를 갖지 않고 Java API 만 부른다. 작업 API 는 이 PC 에서, 이 서버가 띄운 화면에서 온 요청만 받는다. 같은 결과(result_id + 이미지 키)를 다시 저장하면 Java 가 기존 저장 결과를 돌려주어 중복 저장되지 않는다.
+이 서버는 DB 접속 정보를 갖지 않고 Java API 만 부른다. 작업 API 는 이 PC 에서, 이 서버가 띄운 화면에서 온 요청만 받는다. 다른 PC(Cloudflare 터널 등)에서 쓰려면 아래 "다른 PC 에서 쓰기"를 따른다. 같은 결과(result_id + 이미지 키)를 다시 저장하면 Java 가 기존 저장 결과를 돌려주어 중복 저장되지 않는다.
 
 ```powershell
 .venv\Scripts\python scripts\check_workbench.py   # GPU·Java 없이 작업 API 점검 (가짜 Java 서버 사용)
 ```
+
+### 다른 PC 에서 쓰기 (Cloudflare 터널 등)
+
+1. 키 만들기: `.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"` (나온 값은 본인만 보관, 팀원에게는 따로 전달)
+2. `.env.example` 을 복사해 `.env` 로 이름을 바꾸고 `API_KEY=<키>`, `WORKBENCH_REMOTE=true` 를 적는다. `.env` 는 git 에 올라가지 않는다.
+3. 서버를 다시 켠다. 시험 페이지(이 PC 포함) 맨 위 "API 키" 칸에 같은 키를 넣는다 (브라우저에 기억됨).
+
+- `API_KEY` 만 정하면 ①②(나이 변환·후처리)가 키로 잠긴다. ③ DB 원본 작업은 `WORKBENCH_REMOTE=true` 까지 있어야 다른 PC 에서 열린다. 키 없이 `WORKBENCH_REMOTE=true` 만 넣으면 계속 이 PC 전용이다.
+- 터널 주소를 아는 누구나 들어올 수 있으므로 Cloudflare Zero Trust Access(이메일 로그인)도 함께 거는 것을 권한다.
 
 | 환경 변수 | 기본 | 설명 |
 |---|---|---|
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | 외부에 열 때만 `0.0.0.0` |
 | `PYTHON_EXE` | 자동 선택 | `start_server.bat`에서 쓸 `python.exe` 전체 경로 |
 | `API_KEY` | 없음 | 정하면 `X-API-Key` 헤더 필요 |
+| `WORKBENCH_REMOTE` | `false` | `true` + `API_KEY` 면 DB 원본 작업을 다른 PC 에서도 쓴다 |
 | `CORS_ORIGINS` | `*` | 쉼표로 여러 개 |
 | `OUTPUT_DIR` | `outputs` | 결과 저장 위치 |
 | `RESULT_TTL_HOURS` | `24` | 이보다 오래된 결과 삭제 (0 = 안 지움) |
 | `QUEUE_TIMEOUT` | `300` | GPU 대기 최대 초 (넘으면 503) |
 | `MAX_UPLOAD_MB` / `MAX_AGES` | `15` / `5` | 사진 크기 / 한 번에 만들 나이 개수 |
 | `JAVA_API_URL` / `JAVA_TIMEOUT` | `http://127.0.0.1:18080` / `30` | DB 원본 작업에서 부를 Java 백엔드 주소 / 대기 초 |
+
+모든 환경 변수는 저장소 폴더의 `.env` 에 `이름=값` 으로 적어 두어도 된다 (`.env.example`). 이미 정한 환경 변수(`$env:`, `setx`)가 `.env` 보다 우선한다.
 
 ## 예시
 
