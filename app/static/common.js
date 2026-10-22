@@ -96,3 +96,72 @@ function resultGrid(res, extraButtons) {
   for (const im of res.images) grid.append(figure(res.result_id, im, extraButtons && extraButtons(im)));
   return grid;
 }
+
+// ---------------------------------------------------------------- DB 저장 (origin 이 있는 결과만, ③ 작업 화면과 ② 후처리 화면)
+const TTL_NOTE = '임시 결과는 24시간 뒤 지워집니다. DB 에 저장한 사진은 그대로 남습니다.';
+const canSave = (res, im) => !!res.origin && im.key.startsWith('age');
+
+function markSaved(btn, saved, created) {
+  btn.className = 'small ok';
+  btn.textContent = created === false ? '저장됨 (이미 저장된 결과)' : '저장 완료';
+  btn.dataset.saved = saved.aiImageId;
+}
+
+// 결과 이미지 하나의 '선택한 결과 저장' 버튼. 저장 이력은 result_id 단위로 Java 에서 다시 읽어 표시한다.
+function saveButton(res, im, onSaved) {
+  if (!canSave(res, im)) return null;
+  const b = document.createElement('button');
+  b.className = 'small';
+  b.textContent = '선택한 결과 저장';
+  b.dataset.saveKey = `${res.result_id}/${im.key}`;
+  b.addEventListener('click', () => { if (!b.dataset.saved) confirmSave(res, im, b, onSaved); });
+  return b;
+}
+
+async function refreshSaved(rid, root = document) {
+  try {
+    for (const s of await api(`/v1/workbench/saves?result_id=${encodeURIComponent(rid)}`)) {
+      const b = root.querySelector(`button[data-save-key="${rid}/${s.imageKey}"]`);
+      if (b) markSaved(b, s, true);
+    }
+  } catch (e) { /* Java 가 꺼져 있으면 표시만 못 한다 */ }
+}
+
+function confirmSave(res, im, btn, onSaved) {
+  const o = res.origin;
+  const dlg = document.createElement('dialog');
+  dlg.className = 'confirm';
+  dlg.innerHTML = `<h2>이 결과를 DB 에 저장할까요?</h2>
+    <div class="pair"><figure><img alt="원본"><figcaption><b>원본</b></figcaption></figure>
+    <figure><img alt="결과"><figcaption><b>${imgLabel(im)} 결과</b></figcaption></figure></div>
+    <p>아동 <b></b> · 목표 나이 <b>${im.key.slice(3)}세</b><br><span class="status">${res.result_id} / ${im.key}</span></p>
+    <p class="hint">${TTL_NOTE}</p>
+    <div class="row" style="margin:0"><button class="ghost" value="cancel">취소</button><button value="ok">저장</button></div>`;
+  dlg.querySelector('p b').textContent = o.person_name || o.person_id;  // 이름은 DB 값이라 글자로만 넣는다
+  const [src, out] = dlg.querySelectorAll('img');
+  blobUrl(`/v1/workbench/persons/${o.person_id}/images/${o.source_image_id}`).then(u => src.src = u).catch(() => {});
+  blobUrl(im.url).then(u => out.src = u).catch(() => {});
+  dlg.addEventListener('click', async e => {
+    const v = e.target.value;
+    if (v === 'cancel') { dlg.close(); return; }
+    if (v !== 'ok') return;
+    dlg.close();
+    btn.disabled = true;
+    btn.textContent = '저장 중…';
+    const form = new FormData();
+    form.append('result_id', res.result_id);
+    form.append('key', im.key);
+    try {
+      const saved = await api('/v1/workbench/saves', form);  // Java 가 DB 저장 성공을 돌려준 뒤에만 여기로 온다
+      markSaved(btn, saved, saved.created);
+      if (onSaved) onSaved(saved);
+    } catch (err) {
+      btn.className = 'small err';
+      btn.textContent = '저장 실패 · 다시 시도';
+      btn.title = err.message;
+    } finally { btn.disabled = false; }
+  });
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}

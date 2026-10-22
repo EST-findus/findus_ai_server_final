@@ -7,7 +7,11 @@
     POST /v1/glasses   (아직 구현 전, 501) 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴
     GET  /v1/results/{result_id}                    결과 정보
     GET  /v1/results/{result_id}/images/{key}.png   결과 이미지
+
+    /v1/workbench/*    DB 원본 작업 (시험 페이지 /test/workbench). Java 백엔드에서 원본을 받아 변환하고,
+                       고른 결과만 Java 로 보내 DB 에 저장한다. 이 PC 에서 같은 출처 요청만 받는다.
 """
+import json
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -20,17 +24,17 @@ if str(ROOT) not in sys.path:  # HairFastGAN 이 잠깐 작업 폴더를 바꿔�
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
-from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile  # noqa: E402
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from src.hair_fit import USER_LIMIT  # noqa: E402
 
-from . import store  # noqa: E402
+from . import java_client, store  # noqa: E402
 from .engine import BadInput, Busy, NotReady, engine, presets, resolve_color, style_refs  # noqa: E402
 from .schemas import GlassesStylesOut, HairStylesOut, HealthOut, ResultOut  # noqa: E402
-from .settings import API_KEY, CORS_ORIGINS, MAX_AGES, MAX_UPLOAD_MB  # noqa: E402
+from .settings import API_KEY, CONFIG, CORS_ORIGINS, MAX_AGES, MAX_UPLOAD_MB, ROOT as APP_ROOT  # noqa: E402
 
 
 @asynccontextmanager
@@ -53,6 +57,7 @@ app.add_exception_handler(BadInput, _err(400))
 app.add_exception_handler(store.NotFound, _err(404))
 app.add_exception_handler(NotReady, _err(501))
 app.add_exception_handler(Busy, _err(503))
+app.add_exception_handler(java_client.JavaError, lambda _req, e: JSONResponse(status_code=e.status, content={"detail": str(e)}))
 
 
 def check_key(x_api_key: Optional[str] = Header(None)):
@@ -66,12 +71,15 @@ v1 = APIRouter(prefix="/v1", dependencies=[Depends(check_key)])
 # ---------------------------------------------------------------- 도우미
 
 def _decode(upload: UploadFile) -> np.ndarray:
-    data = upload.file.read()
+    return _decode_bytes(upload.file.read(), upload.filename)
+
+
+def _decode_bytes(data: bytes, name: str) -> np.ndarray:
     if len(data) > MAX_UPLOAD_MB * 2**20:
         raise BadInput(f"사진이 너무 큽니다 ({len(data) / 2**20:.1f}MB > {MAX_UPLOAD_MB:.0f}MB)")
     img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
-        raise BadInput(f"이미지를 읽지 못했습니다: {upload.filename}")
+        raise BadInput(f"이미지를 읽지 못했습니다: {name}")
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
@@ -99,7 +107,26 @@ def _result(meta: dict, seconds: float, info: Optional[dict] = None, extra: Opti
                "url": f"/v1/results/{rid}/images/{k}.png", "info": (info or {}).get(k, {})}
               for k in meta["images"]]
     return {"result_id": rid, "kind": meta["kind"], "parent_id": meta.get("parent_id"), "sex": meta.get("sex"),
-            "seconds": round(seconds, 1), "images": images, "extra": extra or {}}
+            "seconds": round(seconds, 1), "images": images, "extra": extra or {}, "origin": meta.get("origin")}
+
+
+def _ages(ages: str) -> list:
+    try:
+        age_list = sorted({int(a) for a in ages.replace(" ", "").split(",") if a})
+    except ValueError:
+        raise BadInput(f"ages 는 숫자를 쉼표로 이은 것입니다: {ages}")
+    if not age_list or len(age_list) > MAX_AGES or not all(1 <= a <= 100 for a in age_list):
+        raise BadInput(f"ages 는 1~100 사이 숫자 1~{MAX_AGES}개입니다: {ages}")
+    return age_list
+
+
+def _run_aging(img: np.ndarray, age_list: list, sex: str, strength: float, gender_strength: float, **meta_extra) -> dict:
+    t0 = time.time()
+    images, extra = engine.age(img, age_list, sex, gender_strength, strength=strength)
+    extra.update(ages=age_list, strength=strength, gender_strength=gender_strength)
+    meta = store.save("aging", images, sex, **extra, **meta_extra)
+    store.cleanup()
+    return _result(meta, time.time() - t0, extra=extra)
 
 
 # ---------------------------------------------------------------- 1. 나이 변환
@@ -111,20 +138,9 @@ def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (j
           strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False,
                                  description="나이 변환 강도 (0~2, 기본 1). 0은 나이 변화만 끄며 얼굴 재구성·성별 보정은 적용된다"),
           gender_strength: float = Form(2.0, ge=0, le=5, description="성별 보정 세기 (0 = 끔, 기본 2)")):
-    try:
-        age_list = sorted({int(a) for a in ages.replace(" ", "").split(",") if a})
-    except ValueError:
-        raise BadInput(f"ages 는 숫자를 쉼표로 이은 것입니다: {ages}")
-    if not age_list or len(age_list) > MAX_AGES or not all(1 <= a <= 100 for a in age_list):
-        raise BadInput(f"ages 는 1~100 사이 숫자 1~{MAX_AGES}개입니다: {ages}")
+    age_list = _ages(ages)
     sex = _sex(sex)
-    img = _decode(image)
-    t0 = time.time()
-    images, extra = engine.age(img, age_list, sex, gender_strength, strength=strength)
-    extra.update(ages=age_list, strength=strength, gender_strength=gender_strength)
-    meta = store.save("aging", images, sex, **extra)
-    store.cleanup()
-    return _result(meta, time.time() - t0, extra=extra)
+    return _run_aging(_decode(image), age_list, sex, strength, gender_strength)
 
 
 # ---------------------------------------------------------------- 2. 머리 스타일
@@ -201,7 +217,86 @@ def result_image(result_id: str, key: str):
     return FileResponse(store.image_path(result_id, key), media_type="image/png")
 
 
+# ---------------------------------------------------------------- 4. DB 원본 작업 (Java 연동)
+
+def local_only(request: Request):
+    """이 PC 에서, 이 서버가 띄운 화면에서 온 요청만. 다른 웹사이트가 몰래 저장 요청을 보내지 못하게 한다."""
+    if (request.client.host if request.client else "") not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "이 PC 에서만 쓸 수 있습니다.")
+    origin = request.headers.get("origin")
+    if origin and origin != f"{request.url.scheme}://{request.headers.get('host')}":
+        raise HTTPException(403, "다른 사이트에서 온 요청은 받지 않습니다.")
+
+
+wb = APIRouter(prefix="/v1/workbench", tags=["DB 원본 작업"], dependencies=[Depends(check_key), Depends(local_only)])
+MODEL = CONFIG.relative_to(APP_ROOT).as_posix()
+
+
+@wb.get("/persons", summary="실종아동 목록 (Java 기존 API, 페이지 방식)")
+def wb_persons(page: int = 0, size: int = 12):
+    return java_client.persons(page, size)
+
+
+@wb.get("/persons/{person_id}", summary="실종아동 상세와 원본 사진 목록")
+def wb_person(person_id: str):
+    return java_client.person(person_id)
+
+
+@wb.get("/persons/{person_id}/images/{image_id}", summary="원본 사진 (화면 표시용, 저장하지 않음)")
+def wb_original(person_id: str, image_id: str):
+    data, ctype = java_client.original_image(person_id, image_id)
+    return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
+
+
+@wb.post("/aging", response_model=ResultOut, summary="DB 원본 + 나이 → 나이 변환 (결과에 원본 연결 정보를 남긴다)")
+def wb_aging(person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
+             source_image_id: str = Form(..., description="그 아동의 원본 사진 id"),
+             ages: str = Form(..., examples=["20,30,40"]),
+             sex: str = Form(..., description="M | F"),
+             strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False),
+             gender_strength: float = Form(2.0, ge=0, le=5)):
+    age_list = _ages(ages)
+    sex = _sex(sex)
+    p = java_client.person(person_id)
+    data, _ = java_client.original_image(person_id, source_image_id)  # 다른 아동의 사진이면 Java 가 404
+    origin = {"person_id": p["id"], "source_image_id": java_client.as_uuid(source_image_id, "source_image_id"),
+              "person_name": p.get("name"), "model": MODEL}
+    return _run_aging(_decode_bytes(data, "DB 원본"), age_list, sex, strength, gender_strength, origin=origin)
+
+
+@wb.post("/saves", summary="선택한 결과 저장 (Java 를 거쳐 DB 에 보관)",
+         responses={201: {"description": "새로 저장"}, 409: {"description": "같은 결과가 다른 사진으로 이미 저장됨"}})
+def wb_save(response: Response, result_id: str = Form(...), key: str = Form(..., description="이미지 키 (예: age30)")):
+    m = store.meta(result_id)
+    origin = m.get("origin")
+    if not origin:
+        raise BadInput("DB 원본으로 만든 결과만 저장할 수 있습니다.")
+    if not key.startswith("age"):
+        raise BadInput(f"목표 나이를 알 수 없는 이미지입니다: {key}")
+    png = store.image_path(result_id, key).read_bytes()
+    options = {"model": origin.get("model"), "steps": store.lineage(result_id)}
+    status, saved = java_client.save({"personId": origin["person_id"], "sourceImageId": origin["source_image_id"],
+                                      "targetAge": int(key[3:]), "resultId": result_id, "imageKey": key,
+                                      "options": json.dumps(options, ensure_ascii=False)}, png)
+    response.status_code = status
+    return saved
+
+
+@wb.get("/saves", summary="저장 이력 (person_id 또는 result_id)")
+def wb_saves(person_id: Optional[str] = None, result_id: Optional[str] = None):
+    if not (person_id or result_id):
+        raise BadInput("person_id 또는 result_id 가 필요합니다.")
+    return java_client.saves(person_id, result_id)
+
+
+@wb.get("/ai-images/{ai_image_id}", summary="DB 에 저장한 AI 사진")
+def wb_ai_image(ai_image_id: str):
+    data, ctype = java_client.ai_image(ai_image_id)
+    return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
+
+
 app.include_router(v1)
+app.include_router(wb)
 
 
 STATIC = Path(__file__).with_name("static")
@@ -224,6 +319,12 @@ def test_aging():
 def test_post():
     """시험 페이지 ②: 후처리 (머리·화장·안경). ?result_id= 로 나이 변환 결과를 넘겨받는다."""
     return FileResponse(STATIC / "post.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/test/workbench", include_in_schema=False)
+def test_workbench():
+    """시험 페이지 ③: DB 원본 작업. 실종아동 원본으로 나이 변환 → 고른 결과만 DB 저장."""
+    return FileResponse(STATIC / "workbench.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/health", response_model=HealthOut, summary="서버 상태")
