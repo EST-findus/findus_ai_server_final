@@ -7,6 +7,7 @@ GPU 하나(6GB)라서
   - 나이 변환은 configs/final.yaml 의 keep_loaded(기본 false) 를 따른다. false 면 단계마다 올렸다 내린다.
 """
 import gc
+import pickle
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,7 +22,7 @@ from src.hair_color import HairMask, hair_delta_e, recolor
 from src.hairstyle import HairPost, hair_only
 from src.pipeline import Pipeline, imread_rgb, imwrite_rgb
 
-from .settings import CONFIG, HAIR_PRESETS, HAIR_REFS, QUEUE_TIMEOUT
+from .settings import CONFIG, ENCODER_DIR, HAIR_PRESETS, HAIR_REFS, QUEUE_TIMEOUT
 
 HAIR_ALIGNED = HAIR_REFS / "_aligned"    # 참조 사진 FFHQ 정렬 캐시
 HAIR_THUMBS = HAIR_REFS / "_hair_only"   # 목록 화면용 썸네일 (참조 속 얼굴은 지우고 머리만)
@@ -45,6 +46,16 @@ def config() -> dict:
 
 def presets() -> dict:
     return yaml.safe_load(HAIR_PRESETS.read_text(encoding="utf-8"))
+
+
+def default_encoder() -> str:
+    """configs/final.yaml 의 나이 인코더 파일 이름 (encoder 를 안 고르면 이것)."""
+    return Path(config()["aging"]["encoder_full"]).name
+
+
+def encoders() -> List[str]:
+    """weights/sam/encoders/ 에 넣은 나이 인코더 파일 이름."""
+    return sorted(p.name for p in ENCODER_DIR.glob("*.pt")) if ENCODER_DIR.is_dir() else []
 
 
 def style_refs(sex: str, key: str) -> List[str]:
@@ -85,6 +96,7 @@ class Engine:
     def __init__(self):
         self._lock = threading.Lock()
         self._cache = {}          # keep_loaded: true 일 때 나이 변환 모델 보관
+        self._encoder = None      # _cache 에 올라간 모델이 쓴 나이 인코더 경로
         self._hair: Optional[HairPost] = None
         self._thumb_lock = threading.Lock()
         self._thumb_parser = None
@@ -122,20 +134,35 @@ class Engine:
 
     # ---------------------------------------------------------------- 1. 나이 변환
 
-    def age(self, img: np.ndarray, ages: List[int], sex: str, gender_strength: float, strength: float = 1.0) -> tuple:
+    def age(self, img: np.ndarray, ages: List[int], sex: str, gender_strength: float, strength: float = 1.0,
+            encoder: Optional[str] = None) -> tuple:
         """아이 사진 → {'age30': 얼굴, ...} (FFHQ 정렬 1024), 정보.
-        흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더 best_encoder.pt) + 성별 보정."""
+        흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더) + 성별 보정.
+        encoder: weights/sam/encoders/ 의 파일 이름. 비우면 configs/final.yaml 의 기본(best_encoder.pt)."""
         cfg = config()
         cfg["aging"]["params"].update(sex=sex, strength=float(strength), gender_strength=float(gender_strength))
         cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]  # AdaFace 는 서버에 코드·가중치가 없다
+        if encoder:
+            if encoder not in encoders():  # 목록에 있는 이름만 (임의 경로 접근 막기)
+                raise BadInput(f"모르는 나이 인코더입니다: {encoder} (GET /v1/aging/encoders)")
+            cfg["aging"]["encoder_full"] = str(ENCODER_DIR / encoder)
         with self.gpu():
             self._free_hair()
+            if cfg["aging"]["encoder_full"] != self._encoder:  # keep_loaded 일 때 이전 인코더가 GPU 에 남지 않게
+                self._free_aging()
+                self._encoder = cfg["aging"]["encoder_full"]
             try:
                 res = Pipeline(cfg, cache=self._cache).run(img, target_ages=ages)
             except ValueError as e:  # 얼굴을 못 찾음
                 raise BadInput(str(e))
+            except (KeyError, TypeError, RuntimeError, pickle.UnpicklingError) as e:
+                if encoder and (not isinstance(e, RuntimeError) or "state_dict" in str(e)):
+                    raise BadInput(f"나이 인코더 형식이 아닙니다: {encoder} ({type(e).__name__}). "
+                                   "docs/[03] 2-2 의 형식인지 확인하세요.") from e
+                raise
         images = {f"age{a}": out for a, out in sorted(res.outputs.items())}
-        return images, {"colorized": bool(res.colorized),
+        return images, {"encoder": Path(cfg["aging"]["encoder_full"]).name,
+                        "colorized": bool(res.colorized),
                         "color_spread": None if res.color_spread is None else round(res.color_spread, 2),
                         # 입력 사진 대비 신원 점수 (코사인). 기록만 하고 걸러내지 않는다: 기준값은 dev 평가 뒤에 정한다
                         "identity": {f"age{a}": {n: round(v["vs_input"], 3) for n, v in s.items()}

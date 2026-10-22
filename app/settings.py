@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "configs" / "final.yaml"              # 나이 변환 조합 (ai_lab 최종 모델과 같은 파일)
 HAIR_PRESETS = ROOT / "configs" / "hair_presets.yaml"  # 머리 스타일·색 목록
 HAIR_REFS = ROOT / "data" / "hair_refs"                # <M|F>/<스타일 key>/*.png 참조 사진 (scripts/sync_assets.py)
+ENCODER_DIR = ROOT / "weights" / "sam" / "encoders"    # 여기 넣은 나이 인코더(*.pt)를 화면·API 에서 고를 수 있다
 
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", ROOT / "outputs"))      # 결과 저장 (얼굴 사진이라 git 제외)
 RESULT_TTL_HOURS = float(os.getenv("RESULT_TTL_HOURS", "24"))     # 이보다 오래된 결과는 지운다 (0 = 지우지 않음)

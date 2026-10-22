@@ -96,7 +96,7 @@ os.environ.pop("API_KEY", None)
 from app import main, store  # noqa: E402  (환경 변수를 먼저 정해야 설정에 반영된다)
 
 
-def fake_age(img, ages, sex, gender_strength, strength=1.0):
+def fake_age(img, ages, sex, gender_strength, strength=1.0, encoder=None):
     return {f"age{a}": np.full((16, 16, 3), a, np.uint8) for a in ages}, {"colorized": False}
 
 

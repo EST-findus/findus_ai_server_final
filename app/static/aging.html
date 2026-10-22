@@ -21,7 +21,7 @@
 <main>
   <section>
     <h2>나이 변환 <span class="tag">POST /v1/aging</span></h2>
-    <p class="hint">SAM + 나이 인코더 전체 튜닝(best_encoder.pt) + 성별 보정. 흑백 사진은 자동으로 컬러화한다. 나이 2개에 10~13초쯤 걸린다.</p>
+    <p class="hint">SAM + 나이 인코더 + 성별 보정. 흑백 사진은 자동으로 컬러화한다. 나이 2개에 10~13초쯤 걸린다. 나이 인코더는 <code>weights/sam/encoders/</code> 에 .pt 파일을 넣으면 목록에 생긴다 (새로고침).</p>
     <div class="row">
       <label class="f">어릴 때 사진<input id="ag-image" type="file" accept="image/*"></label>
       <img id="ag-preview" class="preview" alt="">
@@ -34,6 +34,7 @@
           <label><input type="radio" name="ag-sex" value="F"><span>여</span></label>
         </div>
       </div>
+      <label class="f">나이 인코더<select id="ag-encoder"></select></label>
       <label class="f"><span>나이 변환 강도 <b id="ag-strength-v">1.0</b></span><input id="ag-strength" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="ag-strength-hint"></label>
       <label class="f"><span>성별 보정 세기 <b id="ag-gs-v">2.0</b></span><input id="ag-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
       <button id="ag-run">나이 변환</button>
@@ -66,6 +67,12 @@ $('ag-image').addEventListener('change', e => {
 $('ag-strength').addEventListener('input', e => $('ag-strength-v').textContent = Number(e.target.value).toFixed(1));
 $('ag-gs').addEventListener('input', e => $('ag-gs-v').textContent = Number(e.target.value).toFixed(1));
 
+api('/v1/aging/encoders').then(r => {
+  const sel = $('ag-encoder');
+  sel.append(new Option(`${r.default} (기본)`, ''));
+  for (const name of r.encoders) sel.append(new Option(name, name));
+}).catch(e => done('ag', '나이 인코더 목록: ' + e.message, false));
+
 function addRun(res, file) {
   const box = $('ag-runs');
   if (!box.querySelector('.run')) box.innerHTML = '';
@@ -74,7 +81,7 @@ function addRun(res, file) {
   const head = document.createElement('div');
   head.className = 'run-head';
   const sexTxt = res.sex === 'F' ? '여' : '남';
-  head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)} · 성별 보정 ${res.extra.gender_strength}` +
+  head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · ${res.extra.encoder ?? ''} · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)} · 성별 보정 ${res.extra.gender_strength}` +
                    (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
   const go = document.createElement('button');
   go.className = 'small';
@@ -83,6 +90,10 @@ function addRun(res, file) {
   head.append(go);
   run.append(head);
 
+  for (const im of res.images) {  // 입력 사진 대비 ArcFace 신원 점수를 이미지 아래에
+    const s = res.extra.identity?.[im.key]?.arcface;
+    if (s != null) im.info = { ...im.info, ArcFace: s.toFixed(2) };
+  }
   const grid = resultGrid(res);
   if (file) {  // 비교용으로 올린 사진을 맨 앞에
     const fig = document.createElement('figure');
@@ -102,6 +113,7 @@ $('ag-run').addEventListener('click', async () => {
   form.append('sex', radio('ag-sex'));
   form.append('strength', $('ag-strength').value);
   form.append('gender_strength', $('ag-gs').value);
+  form.append('encoder', $('ag-encoder').value);
   busy('ag', true, '나이 변환 중');
   try {
     const res = await api('/v1/aging', form);
