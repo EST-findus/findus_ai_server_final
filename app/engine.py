@@ -127,7 +127,7 @@ class Engine:
         흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더 best_encoder.pt) + 성별 보정."""
         cfg = config()
         cfg["aging"]["params"].update(sex=sex, strength=float(strength), gender_strength=float(gender_strength))
-        cfg["evaluators"] = []  # 서버에서는 채점하지 않는다 (실제 성인 사진이 없음)
+        cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]  # AdaFace 는 서버에 코드·가중치가 없다
         with self.gpu():
             self._free_hair()
             try:
@@ -136,7 +136,10 @@ class Engine:
                 raise BadInput(str(e))
         images = {f"age{a}": out for a, out in sorted(res.outputs.items())}
         return images, {"colorized": bool(res.colorized),
-                        "color_spread": None if res.color_spread is None else round(res.color_spread, 2)}
+                        "color_spread": None if res.color_spread is None else round(res.color_spread, 2),
+                        # 입력 사진 대비 신원 점수 (코사인). 기록만 하고 걸러내지 않는다: 기준값은 dev 평가 뒤에 정한다
+                        "identity": {f"age{a}": {n: round(v["vs_input"], 3) for n, v in s.items()}
+                                     for a, s in sorted(res.scores.items())}}
 
     # ---------------------------------------------------------------- 2. 머리 스타일·색
 

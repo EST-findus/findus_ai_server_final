@@ -30,6 +30,9 @@ ftfy
 regex
 dill
 
+# 나이 변환 신원 점수 (ArcFace w600k_r50.onnx, CPU 로 돌아서 GPU 용 onnxruntime-gpu 는 필요 없음)
+onnxruntime==1.19.2
+
 # 가중치 받기 (scripts/download_assets.py)
 gdown==5.2.0
 

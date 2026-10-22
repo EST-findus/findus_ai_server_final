@@ -17,6 +17,7 @@ WEIGHTS = {  # 경로: 대략 크기(바이트). 크기가 10% 넘게 다르면 
     "weights/ir_se50/model_ir_se50.pth": 175_367_323,
     "weights/facexlib/detection_Resnet50_Final.pth": 109_497_761,
     "weights/codeformer/codeformer_colorization.pth": 372_359_475,
+    "weights/arcface/w600k_r50.onnx": 174_383_860,
 }
 HAIRFAST = [  # third_party/HairFastGAN/pretrained_models/ 아래 (추론에 쓰는 것만)
     "StyleGAN/ffhq.pt", "StyleGAN/ffhq_PCA.npz", "Rotate/rotate_best.pth", "Blending/checkpoint.pth",

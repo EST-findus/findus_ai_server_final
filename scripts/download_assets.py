@@ -30,6 +30,9 @@ ITEMS = [  # (저장 경로, 종류, 출처)
      "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer_colorization.pth"),
     ("weights/facexlib/detection_Resnet50_Final.pth", "http",
      "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth"),
+    # 나이 변환 신원 점수용 ArcFace (insightface buffalo_l 288MB zip 에서 이 파일만 꺼냄)
+    ("weights/arcface/w600k_r50.onnx", "zip",
+     "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip#w600k_r50.onnx"),
     *[(f"third_party/HairFastGAN/pretrained_models/{f}", "http", HF + f) for f in HAIRFAST],
 ]
 
@@ -46,6 +49,15 @@ def fetch(rel: str, kind: str, src: str):
         import gdown
         if gdown.download(id=src, output=str(part), quiet=False) is None:
             raise RuntimeError(f"구글 드라이브에서 받지 못함 (하루 횟수 제한일 수 있음): https://drive.google.com/uc?id={src}")
+    elif kind == "zip":
+        import zipfile
+        url, member = src.split("#")
+        zpath = dst.with_suffix(".zip.part")
+        urllib.request.urlretrieve(url, zpath)
+        with zipfile.ZipFile(zpath) as z:
+            name = next(n for n in z.namelist() if n.endswith(member))  # zip 안에 폴더가 있어도 찾는다
+            part.write_bytes(z.read(name))
+        zpath.unlink()
     else:
         urllib.request.urlretrieve(src, part)
     part.rename(dst)
@@ -60,7 +72,7 @@ def main():
     failed = []
     for rel, kind, src in ITEMS:
         if args.list:
-            print(f"{rel}\n    ← {src if kind == 'http' else 'Google Drive id ' + src}")
+            print(f"{rel}\n    ← {'Google Drive id ' + src if kind == 'gdrive' else src}")
             continue
         try:
             fetch(rel, kind, src)
