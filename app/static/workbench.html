@@ -43,6 +43,7 @@
           <label><input type="radio" name="wb-sex" value="F"><span>여</span></label>
         </div>
       </div>
+      <label class="f">나이 인코더<select id="wb-encoder"></select></label>
       <label class="f"><span>나이 변환 강도 <b id="wb-strength-v">1.0</b></span><input id="wb-strength" type="range" min="0" max="2" step="0.1" value="1"></label>
       <label class="f"><span>성별 보정 세기 <b id="wb-gs-v">2.0</b></span><input id="wb-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
       <button id="wb-run">나이 변환</button>
@@ -78,6 +79,12 @@ let page = 0, totalPages = 1, current = null, sourceId = null;
 
 $('wb-strength').addEventListener('input', e => $('wb-strength-v').textContent = Number(e.target.value).toFixed(1));
 $('wb-gs').addEventListener('input', e => $('wb-gs-v').textContent = Number(e.target.value).toFixed(1));
+
+api('/v1/aging/encoders').then(r => {
+  const sel = $('wb-encoder');
+  sel.append(new Option(`${r.default} (기본)`, ''));
+  for (const name of r.encoders) sel.append(new Option(name, name));
+}).catch(e => done('wb', '나이 인코더 목록: ' + e.message, false));
 
 const sexOf = s => /^(여|F)/i.test(s || '') ? 'F' : /^(남|M)/i.test(s || '') ? 'M' : null;
 const ageText = p => [p.age != null && `당시 ${p.age}세`, p.ageNow != null && `현재 ${p.ageNow}세`].filter(Boolean).join(' · ');
@@ -164,6 +171,7 @@ $('wb-run').addEventListener('click', async () => {
   form.append('sex', radio('wb-sex'));
   form.append('strength', $('wb-strength').value);
   form.append('gender_strength', $('wb-gs').value);
+  form.append('encoder', $('wb-encoder').value);
   busy('wb', true, `${current.name} 나이 변환 중`);
   try {
     const res = await api('/v1/workbench/aging', form);
@@ -185,7 +193,7 @@ function addRun(res) {
   who.textContent = res.origin.person_name || res.origin.person_id;
   const st = document.createElement('span');
   st.className = 'status';
-  st.textContent = `${res.result_id} · ${res.seconds}초 · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)}`;
+  st.textContent = `${res.result_id} · ${res.seconds}초 · ${res.origin.encoder ?? ''} · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)}`;
   const go = document.createElement('button');
   go.className = 'small ghost';
   go.textContent = '후처리로 →';

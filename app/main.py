@@ -268,14 +268,17 @@ def wb_aging(person_id: str = Form(..., description="실종아동 id (Java DB UU
              ages: str = Form(..., examples=["20,30,40"]),
              sex: str = Form(..., description="M | F"),
              strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False),
-             gender_strength: float = Form(2.0, ge=0, le=5)):
+             gender_strength: float = Form(2.0, ge=0, le=5),
+             encoder: Optional[str] = Form(None, description="나이 인코더 파일 이름 (GET /v1/aging/encoders). 비우면 기본")):
     age_list = _ages(ages)
     sex = _sex(sex)
+    encoder = encoder or None
     p = java_client.person(person_id)
     data, _ = java_client.original_image(person_id, source_image_id)  # 다른 아동의 사진이면 Java 가 404
     origin = {"person_id": p["id"], "source_image_id": java_client.as_uuid(source_image_id, "source_image_id"),
-              "person_name": p.get("name"), "model": MODEL}
-    return _run_aging(_decode_bytes(data, "DB 원본"), age_list, sex, strength, gender_strength, origin=origin)
+              "person_name": p.get("name"), "model": MODEL, "encoder": encoder or default_encoder()}
+    return _run_aging(_decode_bytes(data, "DB 원본"), age_list, sex, strength, gender_strength,
+                      encoder=encoder, origin=origin)
 
 
 @wb.post("/saves", summary="선택한 결과 저장 (Java 를 거쳐 DB 에 보관)",
@@ -288,7 +291,7 @@ def wb_save(response: Response, result_id: str = Form(...), key: str = Form(...,
     if not key.startswith("age"):
         raise BadInput(f"목표 나이를 알 수 없는 이미지입니다: {key}")
     png = store.image_path(result_id, key).read_bytes()
-    options = {"model": origin.get("model"), "steps": store.lineage(result_id)}
+    options = {"model": origin.get("model"), "encoder": origin.get("encoder"), "steps": store.lineage(result_id)}
     status, saved = java_client.save({"personId": origin["person_id"], "sourceImageId": origin["source_image_id"],
                                       "targetAge": int(key[3:]), "resultId": result_id, "imageKey": key,
                                       "options": json.dumps(options, ensure_ascii=False)}, png)

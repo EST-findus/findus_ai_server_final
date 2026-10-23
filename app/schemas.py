@@ -19,7 +19,7 @@ class ResultOut(BaseModel):
     seconds: float = Field(description="처리 시간 (GPU 대기 포함)")
     images: List[ImageOut]
     extra: Dict = Field(default_factory=dict, description="나이 변환: colorized(흑백이라 컬러화했는가), 옵션 값 등")
-    origin: Optional[Dict] = Field(None, description="DB 원본으로 만든 결과의 연결 정보 (person_id, source_image_id, person_name, model). "
+    origin: Optional[Dict] = Field(None, description="DB 원본으로 만든 결과의 연결 정보 (person_id, source_image_id, person_name, model, encoder). "
                                                      "이것이 있는 결과만 DB 저장 대상")
 
 

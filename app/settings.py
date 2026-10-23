@@ -32,5 +32,10 @@ MAX_AGES = int(os.getenv("MAX_AGES", "5"))                        # 한 번에 �
 API_KEY = os.getenv("API_KEY") or None                            # 정하면 X-API-Key 헤더가 맞아야 한다
 WORKBENCH_REMOTE = os.getenv("WORKBENCH_REMOTE", "").lower() == "true"  # true + API_KEY 면 DB 원본 작업을 다른 PC(Cloudflare 등)에서도 쓴다
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
-JAVA_API_URL = os.getenv("JAVA_API_URL", "http://127.0.0.1:18080").rstrip("/")  # 실종아동 DB 를 가진 Java 백엔드 (작업 화면 전용)
+JAVA_API_URL = os.getenv("JAVA_API_URL", 
+                        # 백엔드 진입점
+                        #  "http://127.0.0.1:18080"
+                        # 배포 백엔드 진입점
+                        "https://port-0-findus-backend-mvivqotb15bbb5fd.sel3.cloudtype.app"
+                         ).rstrip("/")  # 실종아동 DB 를 가진 Java 백엔드 (작업 화면 전용)
 JAVA_TIMEOUT = float(os.getenv("JAVA_TIMEOUT", "30"))                              # Java 요청 최대 대기(초)

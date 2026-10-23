@@ -97,6 +97,7 @@ from app import main, store  # noqa: E402  (환경 변수를 먼저 정해야 �
 
 
 def fake_age(img, ages, sex, gender_strength, strength=1.0, encoder=None):
+    fake_age.encoder = encoder  # 엔진까지 넘어온 인코더 확인용
     return {f"age{a}": np.full((16, 16, 3), a, np.uint8) for a in ages}, {"colorized": False}
 
 
@@ -140,9 +141,9 @@ class WorkbenchCheck(unittest.TestCase):
         FakeJava.saves.clear()
         FakeJava.requests.clear()
 
-    def aging(self, ages="30,40"):
+    def aging(self, ages="30,40", **form):
         status, res = call("POST", "/v1/workbench/aging", {"person_id": PERSON, "source_image_id": SOURCE,
-                                                            "ages": ages, "sex": "F"})
+                                                            "ages": ages, "sex": "F", **form})
         self.assertEqual(status, 200, res)
         return res
 
@@ -162,6 +163,8 @@ class WorkbenchCheck(unittest.TestCase):
         self.assertEqual(res["origin"]["source_image_id"], SOURCE)
         self.assertEqual(res["origin"]["person_name"], "가상아동")
         self.assertEqual(res["origin"]["model"], "configs/final.yaml")
+        self.assertEqual(res["origin"]["encoder"], main.default_encoder())  # 안 고르면 기본 인코더를 기록
+        self.assertIsNone(fake_age.encoder)
         self.assertFalse(any(m == "POST" for m, _, _ in FakeJava.requests))
         self.assertEqual(FakeJava.saves, {})
 
@@ -185,6 +188,14 @@ class WorkbenchCheck(unittest.TestCase):
         self.assertEqual((status, again["created"], again["aiImageId"]), (200, False, saved["aiImageId"]))
         status, data = call("GET", f"/v1/workbench/ai-images/{saved['aiImageId']}")
         self.assertEqual(status, 200)
+
+    def test_고른_인코더로_변환하고_저장_정보에_남긴다(self):
+        res = self.aging(encoder="other.pt")
+        self.assertEqual((fake_age.encoder, res["origin"]["encoder"]), ("other.pt", "other.pt"))
+        hair = store.save("hair", store.load_images(res["result_id"], ["age30"]), "F", res["result_id"], style="bob")
+        status, saved = call("POST", "/v1/workbench/saves", {"result_id": hair["result_id"], "key": "age30"})
+        self.assertEqual(status, 201, saved)
+        self.assertEqual(json.loads(FakeJava.saves[(hair["result_id"], "age30")]["options"])["encoder"], "other.pt")
 
     def test_업로드로_만든_결과는_저장하지_않는다(self):
         meta = store.save("aging", {"age30": np.zeros((16, 16, 3), np.uint8)}, "M")
