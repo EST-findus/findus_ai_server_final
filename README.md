@@ -70,6 +70,7 @@ GPU 가 6GB 하나라서 ai_lab 웹 서버(`web/server.py`)와 동시에 띄우�
 1. 키 만들기: `.venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"` (나온 값은 본인만 보관, 팀원에게는 따로 전달)
 2. `.env.example` 을 복사해 `.env` 로 이름을 바꾸고 `API_KEY=<키>`, `WORKBENCH_REMOTE=true` 를 적는다. `.env` 는 git 에 올라가지 않는다.
 3. 서버를 다시 켠다. 시험 페이지(이 PC 포함) 맨 위 "API 키" 칸에 같은 키를 넣는다 (브라우저에 기억됨).
+4. 서버를 켠 채로 `start_tunnel.bat` 를 실행한다 (cloudflared 임시 터널 → `PORT`, 기본 8000). 창에 나온 `https://....trycloudflare.com` 주소로 접속한다. 주소는 켤 때마다 바뀐다.
 
 - `API_KEY` 만 정하면 ①②(나이 변환·후처리)가 키로 잠긴다. ③ DB 원본 작업은 `WORKBENCH_REMOTE=true` 까지 있어야 다른 PC 에서 열린다. 키 없이 `WORKBENCH_REMOTE=true` 만 넣으면 계속 이 PC 전용이다.
 - 터널 주소를 아는 누구나 들어올 수 있으므로 Cloudflare Zero Trust Access(이메일 로그인)도 함께 거는 것을 권한다.
