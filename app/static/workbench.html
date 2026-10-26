@@ -199,6 +199,10 @@ function addRun(res) {
   go.textContent = '후처리로 →';
   go.addEventListener('click', () => location.href = `/test/post?result_id=${encodeURIComponent(res.result_id)}`);
   head.append(who, st, go);
+  for (const im of res.images) {  // 입력 사진 대비 ArcFace 신원 점수를 이미지 아래에
+    const s = res.extra.identity?.[im.key]?.arcface;
+    if (s != null) im.info = { ...im.info, ArcFace: s.toFixed(2) };
+  }
   run.append(head, resultGrid(res, im => [saveButton(res, im, loadSaved)].filter(Boolean)));
   box.prepend(run);
   refreshSaved(res.result_id, run);
