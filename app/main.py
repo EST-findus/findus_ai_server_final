@@ -125,19 +125,45 @@ def _ages(ages: str) -> list:
 
 
 def _run_aging(img: np.ndarray, age_list: list, sex: str, strength: float, gender_strength: float,
-               encoder: Optional[str] = None, **meta_extra) -> dict:
+               encoder: Optional[str] = None, original: Optional[np.ndarray] = None, parent_id: Optional[str] = None,
+               **meta_extra) -> dict:
     t0 = time.time()
-    images, extra = engine.age(img, age_list, sex, gender_strength, strength=strength, encoder=encoder)
-    extra.update(ages=age_list, strength=strength, gender_strength=gender_strength)
-    meta = store.save("aging", images, sex, **extra, **meta_extra)
+    images, extra = engine.age(img, age_list, sex, gender_strength, strength=strength, encoder=encoder, original=original)
+    extra.update(ages=age_list, strength=strength, gender_strength=gender_strength, restore=original is not None)
+    meta = store.save("aging", images, sex, parent_id, **extra, **meta_extra)
     store.cleanup()
     return _result(meta, time.time() - t0, extra=extra)
+
+
+def _restored(result_id: str) -> tuple:
+    """복원 결과 → (복원 얼굴, 복원 전 얼굴, meta)."""
+    m = store.meta(result_id)
+    if m["kind"] != "restore":
+        raise BadInput(f"복원 결과가 아닙니다: {result_id} ({m['kind']})")
+    imgs = store.load_images(result_id, ["face", "input"])
+    return imgs["face"], imgs["input"], m
+
+
+def _run_restore(img: np.ndarray, **meta_extra) -> dict:
+    t0 = time.time()
+    images, extra = engine.restore(img)
+    meta = store.save("restore", images, None, **extra, **meta_extra)
+    store.cleanup()
+    return _result(meta, time.time() - t0, extra=extra)
+
+
+# ---------------------------------------------------------------- 0. 복원 (골랐을 때만)
+
+@v1.post("/restore", response_model=ResultOut, summary="사진 → CodeFormer 복원 얼굴 (보고 고른 뒤 나이 변환에 넣는다)")
+def restore(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화 후 복원)")):
+    return _run_restore(_decode(image))
 
 
 # ---------------------------------------------------------------- 1. 나이 변환
 
 @v1.post("/aging", response_model=ResultOut, summary="사진 + 나이 → 나이 변환 얼굴")
-def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화)"),
+def aging(image: Optional[UploadFile] = File(None, description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화). result_id 와 둘 중 하나"),
+          result_id: Optional[str] = Form(None, description="복원 결과 id (POST /v1/restore). 주면 복원 얼굴로 변환하고 원본 대비 점수도 낸다"),
           ages: str = Form(..., description="목표 나이. 하나(30) 또는 쉼표로 여러 개(20,30,40)", examples=["20,30,40"]),
           sex: str = Form(..., description="M | F. 결과의 성별이 뒤바뀌지 않게 보정한다"),
           strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False,
@@ -146,6 +172,12 @@ def aging(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (j
           encoder: Optional[str] = Form(None, description="나이 인코더 파일 이름 (GET /v1/aging/encoders). 비우면 기본")):
     age_list = _ages(ages)
     sex = _sex(sex)
+    if result_id:
+        face, original, _ = _restored(result_id)
+        return _run_aging(face, age_list, sex, strength, gender_strength, encoder=encoder or None,
+                          original=original, parent_id=result_id)
+    if image is None or not image.filename:
+        raise BadInput("image(얼굴 사진) 또는 result_id(복원 결과) 중 하나가 필요합니다.")
     return _run_aging(_decode(image), age_list, sex, strength, gender_strength, encoder=encoder or None)
 
 
@@ -262,6 +294,22 @@ def wb_original(person_id: str, image_id: str):
     return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
 
 
+def _wb_original(person_id: str, source_image_id: str) -> tuple:
+    """DB 원본 사진과 결과에 남길 연결 정보."""
+    p = java_client.person(person_id)
+    data, _ = java_client.original_image(person_id, source_image_id)  # 다른 아동의 사진이면 Java 가 404
+    origin = {"person_id": p["id"], "source_image_id": java_client.as_uuid(source_image_id, "source_image_id"),
+              "person_name": p.get("name"), "model": MODEL}
+    return _decode_bytes(data, "DB 원본"), origin
+
+
+@wb.post("/restore", response_model=ResultOut, summary="DB 원본 → CodeFormer 복원 얼굴 (보고 고른 뒤 나이 변환에 넣는다)")
+def wb_restore(person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
+               source_image_id: str = Form(..., description="그 아동의 원본 사진 id")):
+    img, origin = _wb_original(person_id, source_image_id)
+    return _run_restore(img, origin=origin)
+
+
 @wb.post("/aging", response_model=ResultOut, summary="DB 원본 + 나이 → 나이 변환 (결과에 원본 연결 정보를 남긴다)")
 def wb_aging(person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
              source_image_id: str = Form(..., description="그 아동의 원본 사진 id"),
@@ -269,16 +317,24 @@ def wb_aging(person_id: str = Form(..., description="실종아동 id (Java DB UU
              sex: str = Form(..., description="M | F"),
              strength: float = Form(1.0, ge=0, le=2, allow_inf_nan=False),
              gender_strength: float = Form(2.0, ge=0, le=5),
-             encoder: Optional[str] = Form(None, description="나이 인코더 파일 이름 (GET /v1/aging/encoders). 비우면 기본")):
+             encoder: Optional[str] = Form(None, description="나이 인코더 파일 이름 (GET /v1/aging/encoders). 비우면 기본"),
+             result_id: Optional[str] = Form(None, description="같은 원본으로 만든 복원 결과 id (POST /v1/workbench/restore). 주면 복원 얼굴로 변환")):
     age_list = _ages(ages)
     sex = _sex(sex)
     encoder = encoder or None
-    p = java_client.person(person_id)
-    data, _ = java_client.original_image(person_id, source_image_id)  # 다른 아동의 사진이면 Java 가 404
-    origin = {"person_id": p["id"], "source_image_id": java_client.as_uuid(source_image_id, "source_image_id"),
-              "person_name": p.get("name"), "model": MODEL, "encoder": encoder or default_encoder()}
-    return _run_aging(_decode_bytes(data, "DB 원본"), age_list, sex, strength, gender_strength,
-                      encoder=encoder, origin=origin)
+    if result_id:
+        face, original, m = _restored(result_id)
+        o = m.get("origin")
+        same = o and all(java_client.as_uuid(a, n) == java_client.as_uuid(b, n) for a, b, n in
+                         ((o["person_id"], person_id, "person_id"), (o["source_image_id"], source_image_id, "source_image_id")))
+        if not same:
+            raise BadInput(f"복원 결과 {result_id} 는 이 아동·원본 사진으로 만든 것이 아닙니다.")
+        origin = {**o, "encoder": encoder or default_encoder(), "restore": True}
+        return _run_aging(face, age_list, sex, strength, gender_strength, encoder=encoder,
+                          original=original, parent_id=result_id, origin=origin)
+    img, origin = _wb_original(person_id, source_image_id)
+    origin.update(encoder=encoder or default_encoder(), restore=False)
+    return _run_aging(img, age_list, sex, strength, gender_strength, encoder=encoder, origin=origin)
 
 
 @wb.post("/saves", summary="선택한 결과 저장 (Java 를 거쳐 DB 에 보관)",
@@ -291,7 +347,8 @@ def wb_save(response: Response, result_id: str = Form(...), key: str = Form(...,
     if not key.startswith("age"):
         raise BadInput(f"목표 나이를 알 수 없는 이미지입니다: {key}")
     png = store.image_path(result_id, key).read_bytes()
-    options = {"model": origin.get("model"), "encoder": origin.get("encoder"), "steps": store.lineage(result_id)}
+    options = {"model": origin.get("model"), "encoder": origin.get("encoder"), "restore": origin.get("restore", False),
+               "steps": store.lineage(result_id)}
     status, saved = java_client.save({"personId": origin["person_id"], "sourceImageId": origin["source_image_id"],
                                       "targetAge": int(key[3:]), "resultId": result_id, "imageKey": key,
                                       "options": json.dumps(options, ensure_ascii=False)}, png)

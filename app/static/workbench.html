@@ -46,8 +46,10 @@
       <label class="f">나이 인코더<select id="wb-encoder"></select></label>
       <label class="f"><span>나이 변환 강도 <b id="wb-strength-v">1.0</b></span><input id="wb-strength" type="range" min="0" max="2" step="0.1" value="1"></label>
       <label class="f"><span>성별 보정 세기 <b id="wb-gs-v">2.0</b></span><input id="wb-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
+      <button id="wb-restore" class="ghost">CodeFormer 복원</button>
       <button id="wb-run">나이 변환</button>
     </div>
+    <p class="hint">CodeFormer 복원: 복원한 얼굴만 먼저 보여준다. 마음에 들면 그 결과의 "이 얼굴로 나이 변환" 을 누른다. 그냥 "나이 변환" 은 원본으로 한다. 복원 결과 자체는 DB 에 저장하지 않는다.</p>
     <div id="wb-status" class="status"></div>
   </section>
 
@@ -162,25 +164,72 @@ function renderTarget() {
 }
 
 // ---------------------------------------------------------------- 나이 변환
-$('wb-run').addEventListener('click', async () => {
-  if (!current || !sourceId) return done('wb', '아동과 원본 사진을 고르세요.', false);
+function sourceForm(personId, imageId) {
   const form = new FormData();
-  form.append('person_id', current.id);
-  form.append('source_image_id', sourceId);
+  form.append('person_id', personId);
+  form.append('source_image_id', imageId);
+  return form;
+}
+
+function agingForm(personId, imageId) {
+  const form = sourceForm(personId, imageId);
   form.append('ages', $('wb-ages').value);
   form.append('sex', radio('wb-sex'));
   form.append('strength', $('wb-strength').value);
   form.append('gender_strength', $('wb-gs').value);
   form.append('encoder', $('wb-encoder').value);
-  busy('wb', true, `${current.name} 나이 변환 중`);
+  return form;
+}
+
+async function call(path, form, text, msg, onDone) {  // 복원·나이 변환 중에는 두 버튼 모두 막는다
+  busy('wb', true, text);
+  $('wb-restore').disabled = true;
   try {
-    const res = await api('/v1/workbench/aging', form);
-    busy('wb', false);
-    done('wb', `완료 ${res.seconds}초 · result_id ${res.result_id} · 아직 DB 에 저장하지 않았습니다`);
+    const res = await api(path, form);
+    done('wb', `완료 ${res.seconds}초 · result_id ${res.result_id}${msg}`);
     remember(res);
-    addRun(res);
-  } catch (e) { busy('wb', false); done('wb', e.message, false); }
+    onDone(res);
+  } catch (e) { done('wb', e.message, false); }
+  finally { busy('wb', false); $('wb-restore').disabled = false; }
+}
+
+const runAging = (form, name) => call('/v1/workbench/aging', form, `${name} 나이 변환 중`, ' · 아직 DB 에 저장하지 않았습니다', addRun);
+
+$('wb-run').addEventListener('click', () => {
+  if (!current || !sourceId) return done('wb', '아동과 원본 사진을 고르세요.', false);
+  runAging(agingForm(current.id, sourceId), current.name);
 });
+
+$('wb-restore').addEventListener('click', () => {
+  if (!current || !sourceId) return done('wb', '아동과 원본 사진을 고르세요.', false);
+  call('/v1/workbench/restore', sourceForm(current.id, sourceId), `${current.name} CodeFormer 복원 중`, '', addRestore);
+});
+
+function addRestore(res) {
+  const box = $('wb-runs');
+  if (!box.querySelector('.run')) box.innerHTML = '';
+  const run = document.createElement('div');
+  run.className = 'run';
+  const head = document.createElement('div');
+  head.className = 'run-head';
+  const who = document.createElement('b');
+  who.textContent = res.origin.person_name || res.origin.person_id;
+  const st = document.createElement('span');
+  st.className = 'status';
+  st.textContent = `${res.result_id} · CodeFormer 복원 · ${res.seconds}초` + (res.extra.colorized ? ' · 흑백이라 컬러화함' : '');
+  const go = document.createElement('button');
+  go.className = 'small';
+  go.textContent = '이 얼굴로 나이 변환';
+  go.addEventListener('click', () => {  // 복원을 만든 아동·원본으로 (그 사이 다른 아동을 골랐어도)
+    const form = agingForm(res.origin.person_id, res.origin.source_image_id);
+    form.append('result_id', res.result_id);
+    runAging(form, who.textContent);
+  });
+  head.append(who, st, go);
+  addScores(res);
+  run.append(head, resultGrid(res));
+  box.prepend(run);
+}
 
 function addRun(res) {
   const box = $('wb-runs');
@@ -193,16 +242,14 @@ function addRun(res) {
   who.textContent = res.origin.person_name || res.origin.person_id;
   const st = document.createElement('span');
   st.className = 'status';
-  st.textContent = `${res.result_id} · ${res.seconds}초 · ${res.origin.encoder ?? ''} · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)}`;
+  st.textContent = `${res.result_id} · ${res.seconds}초 · ${res.origin.encoder ?? ''} · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)}` +
+                   (res.extra.restore ? ' · 복원 얼굴로' : '');
   const go = document.createElement('button');
   go.className = 'small ghost';
   go.textContent = '후처리로 →';
   go.addEventListener('click', () => location.href = `/test/post?result_id=${encodeURIComponent(res.result_id)}`);
   head.append(who, st, go);
-  for (const im of res.images) {  // 입력 사진 대비 ArcFace 신원 점수를 이미지 아래에
-    const s = res.extra.identity?.[im.key]?.arcface;
-    if (s != null) im.info = { ...im.info, ArcFace: s.toFixed(2) };
-  }
+  addScores(res);
   run.append(head, resultGrid(res, im => [saveButton(res, im, loadSaved)].filter(Boolean)));
   box.prepend(run);
   refreshSaved(res.result_id, run);

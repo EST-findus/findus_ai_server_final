@@ -1,10 +1,10 @@
 """결과 저장소. 요청 하나 = 결과 하나 (outputs/<result_id>/). 한 번 만든 결과는 바꾸지 않는다.
 
     outputs/20261020-153012-a1b2c3/
-        meta.json        {result_id, kind: aging|hair|glasses, parent_id, sex, created, images: {키: 파일}, ...}
+        meta.json        {result_id, kind: restore|aging|hair|glasses, parent_id, sex, created, images: {키: 파일}, ...}
         age30.png        FFHQ 정렬 1024 결과 (무손실)
 
-키는 나이 변환이면 'age30' 처럼 나이, 올린 사진에 바로 머리를 입히면 'face'.
+키는 나이 변환이면 'age30' 처럼 나이, 올린 사진에 바로 머리를 입히면 'face'. 복원은 'face'(복원)와 'input'(복원 전).
 다음 단계(머리 → 안경)는 이전 결과의 result_id 를 받아 그 이미지들 위에 쌓는다.
 DB 원본으로 만든 결과는 meta 에 origin(아동·원본 사진 id)을 남기고, 이어서 만든 결과는 origin 을 물려받는다.
 """
@@ -22,7 +22,7 @@ import numpy as np
 from .settings import OUTPUT_DIR, RESULT_TTL_HOURS
 
 ID_RE = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")
-KEY_RE = re.compile(r"age\d{1,3}|face")
+KEY_RE = re.compile(r"age\d{1,3}|face|input")
 
 
 class NotFound(Exception):

@@ -20,7 +20,8 @@ import yaml
 from src.align import ffhq_align
 from src.hair_color import HairMask, hair_delta_e, recolor
 from src.hairstyle import HairPost, hair_only
-from src.pipeline import Pipeline, imread_rgb, imwrite_rgb
+from src.paths import WEIGHTS
+from src.pipeline import Job, Pipeline, _Work, imread_rgb, imwrite_rgb
 
 from .settings import CONFIG, ENCODER_DIR, HAIR_PRESETS, HAIR_REFS, QUEUE_TIMEOUT, SAM_BASE
 
@@ -133,13 +134,49 @@ class Engine:
             self._cache.clear()
             _empty_cuda()
 
+    # ---------------------------------------------------------------- 0. 복원 (골랐을 때만, 나이 변환 전에)
+
+    def restore(self, img: np.ndarray) -> tuple:
+        """사진 → {'face': 복원 얼굴, 'input': 복원 전 정렬 얼굴} (FFHQ 정렬 1024), 정보.
+        흐름: 검출 → FFHQ 정렬 → 흑백이면 컬러화 → CodeFormer 복원(w=0.5) → 원본 대비 ArcFace.
+        final.yaml 은 복원을 꺼 두었다 (신원을 깎았다, ai_lab docs/[15]). 그래서 결과를 눈으로 보고 고르게 따로 둔다."""
+        if not (WEIGHTS / "codeformer" / "codeformer.pth").exists():
+            raise BadInput("복원 가중치가 없습니다: weights/codeformer/codeformer.pth (CodeFormer v0.1.0 릴리스에서 받기)")
+        cfg = config()
+        cfg["keep_loaded"] = False  # 가끔 쓰는 단계라 쓰고 바로 내린다
+        cfg["restorer"] = {"name": "codeformer", "position": "before"}
+        cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]
+        with self.gpu():
+            self._free_hair()
+            self._free_aging()
+            pipe = Pipeline(cfg)
+            works = [_Work(Job(img), [])]
+            pipe._section(pipe._detect_all, works)
+            if pipe.colorize_on:
+                pipe._section(pipe._colorize_all, works)
+            pipe._section(pipe._restore_all, works, "before")
+            w = works[0]
+            if w.error is None:
+                w.result.outputs = {0: w.result.restored}  # 평가 섹션은 outputs 를 원본 사진과 비교한다
+                pipe._section(pipe._evaluate_all, works)
+        if isinstance(w.error, ValueError):  # 얼굴을 못 찾음
+            raise BadInput(str(w.error))
+        if w.error is not None:
+            raise w.error
+        r = w.result
+        images = {"face": r.restored, "input": r.gray_input if r.colorized else r.aligned}
+        return images, {"colorized": bool(r.colorized),
+                        "color_spread": None if r.color_spread is None else round(r.color_spread, 2),
+                        "identity": {"face": {n: round(v["vs_input"], 3) for n, v in r.scores[0].items()}}}
+
     # ---------------------------------------------------------------- 1. 나이 변환
 
     def age(self, img: np.ndarray, ages: List[int], sex: str, gender_strength: float, strength: float = 1.0,
-            encoder: Optional[str] = None) -> tuple:
+            encoder: Optional[str] = None, original: Optional[np.ndarray] = None) -> tuple:
         """아이 사진 → {'age30': 얼굴, ...} (FFHQ 정렬 1024), 정보.
         흐름: 검출(RetinaFace) → FFHQ 정렬 → 흑백이면 컬러화(CodeFormer) → SAM(나이 인코더) + 성별 보정.
-        encoder: weights/sam/ 의 파일 이름. 비우면 configs/final.yaml 의 기본(best_encoder.pt)."""
+        encoder: weights/sam/ 의 파일 이름. 비우면 configs/final.yaml 의 기본(best_encoder.pt).
+        original: img 가 복원 얼굴일 때 복원 전 얼굴. 주면 원본 대비 신원 점수(identity_original)도 낸다."""
         cfg = config()
         cfg["aging"]["params"].update(sex=sex, strength=float(strength), gender_strength=float(gender_strength))
         cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]  # AdaFace 는 서버에 코드·가중치가 없다
@@ -153,7 +190,7 @@ class Engine:
                 self._free_aging()
                 self._encoder = cfg["aging"]["encoder_full"]
             try:
-                res = Pipeline(cfg, cache=self._cache).run(img, target_ages=ages)
+                res = Pipeline(cfg, cache=self._cache).run(img, target_ages=ages, reference=original)
             except ValueError as e:  # 얼굴을 못 찾음
                 raise BadInput(str(e))
             except (KeyError, TypeError, RuntimeError, pickle.UnpicklingError) as e:
@@ -162,12 +199,16 @@ class Engine:
                                    "docs/[03] 2-2 의 형식인지 확인하세요.") from e
                 raise
         images = {f"age{a}": out for a, out in sorted(res.outputs.items())}
-        return images, {"encoder": Path(cfg["aging"]["encoder_full"]).name,
-                        "colorized": bool(res.colorized),
-                        "color_spread": None if res.color_spread is None else round(res.color_spread, 2),
-                        # 입력 사진 대비 신원 점수 (코사인). 기록만 하고 걸러내지 않는다: 기준값은 dev 평가 뒤에 정한다
-                        "identity": {f"age{a}": {n: round(v["vs_input"], 3) for n, v in s.items()}
-                                     for a, s in sorted(res.scores.items())}}
+        info = {"encoder": Path(cfg["aging"]["encoder_full"]).name,
+                "colorized": bool(res.colorized),
+                "color_spread": None if res.color_spread is None else round(res.color_spread, 2),
+                # 입력 사진 대비 신원 점수 (코사인). 기록만 하고 걸러내지 않는다: 기준값은 dev 평가 뒤에 정한다
+                "identity": {f"age{a}": {n: round(v["vs_input"], 3) for n, v in s.items()}
+                             for a, s in sorted(res.scores.items())}}
+        if original is not None:  # 복원 얼굴로 변환했으면 복원 전 원본 대비 점수도
+            info["identity_original"] = {f"age{a}": {n: round(v["vs_reference"], 3) for n, v in s.items()}
+                                         for a, s in sorted(res.scores.items())}
+        return images, info
 
     # ---------------------------------------------------------------- 2. 머리 스타일·색
 
