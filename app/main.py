@@ -7,6 +7,7 @@
     POST /v1/glasses   (아직 구현 전, 501) 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴
     GET  /v1/results/{result_id}                    결과 정보
     GET  /v1/results/{result_id}/images/{key}.png   결과 이미지
+    GET  /v1/results/{result_id}/images/{key}/age   결과 이미지의 추정 나이 (MiVOLO, CPU, 버튼 누를 때만)
 
     /v1/workbench/*    DB 원본 작업 (시험 페이지 /test/workbench). Java 백엔드에서 원본을 받아 변환하고,
                        고른 결과만 Java 로 보내 DB 에 저장한다. 이 PC 에서 같은 출처 요청만 받는다.
@@ -31,7 +32,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from src.hair_fit import USER_LIMIT  # noqa: E402
 
-from . import java_client, store  # noqa: E402
+from . import age_eval, java_client, store  # noqa: E402
 from .engine import (BadInput, Busy, NotReady, default_encoder, encoders, engine, presets, resolve_color,  # noqa: E402
                      style_refs)
 from .schemas import EncodersOut, GlassesStylesOut, HairStylesOut, HealthOut, ResultOut  # noqa: E402
@@ -259,6 +260,16 @@ def result(result_id: str):
 @v1.get("/results/{result_id}/images/{key}.png", summary="결과 이미지 (PNG)")
 def result_image(result_id: str, key: str):
     return FileResponse(store.image_path(result_id, key), media_type="image/png")
+
+
+@v1.get("/results/{result_id}/images/{key}/age", summary="결과 이미지의 추정 나이 (MiVOLO, CPU, 평가용)")
+def result_age(result_id: str, key: str):
+    img = store.load_images(result_id, [key])[key]
+    t0 = time.time()
+    age = age_eval.estimate(img)
+    if age is None:
+        raise BadInput(f"추정 나이를 쓸 수 없습니다: {age_eval.missing()}")
+    return {"age": round(age, 1), "seconds": round(time.time() - t0, 2)}
 
 
 # ---------------------------------------------------------------- 4. DB 원본 작업 (Java 연동)

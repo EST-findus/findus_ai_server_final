@@ -35,6 +35,8 @@ ITEMS = [  # (저장 경로, 종류, 출처)
     # 나이 변환 신원 점수용 ArcFace (insightface buffalo_l 288MB zip 에서 이 파일만 꺼냄)
     ("weights/arcface/w600k_r50.onnx", "zip",
      "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip#w600k_r50.onnx"),
+    # 결과 추정 나이 (MiVOLO 얼굴 전용 volo_d1 IMDB-cleaned, 103MB, 버튼 누를 때만)
+    ("weights/mivolo/mivolo_face_imdb.pth.tar", "gdrive", "1NlsNEVijX2tjMe8LBb1rI56WB_ADVHeP"),
     *[(f"third_party/HairFastGAN/pretrained_models/{f}", "http", HF + f) for f in HAIRFAST],
 ]
 
@@ -71,6 +73,8 @@ def main():
     args = ap.parse_args()
     if not (ROOT / "third_party" / "HairFastGAN").exists():
         sys.exit("third_party/HairFastGAN 이 없습니다. 먼저 git clone 하세요 (docs/[02] 2장).")
+    if not (ROOT / "third_party" / "MiVOLO").exists():  # 없어도 추정 나이 버튼만 빠진다
+        print("[안내] 추정 나이를 쓰려면: git clone --depth 1 https://github.com/WildChlamydia/MiVOLO third_party/MiVOLO")
     failed = []
     for rel, kind, src in ITEMS:
         if args.list:

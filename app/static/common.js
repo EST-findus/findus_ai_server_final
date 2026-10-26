@@ -83,6 +83,30 @@ function addScores(res) {
   }
 }
 
+// 누른 사진만 추정 나이(MiVOLO, CPU). 기록용이라 결과를 걸러내지 않는다. 괄호는 목표 나이와의 차이
+function ageButton(rid, im) {
+  const b = document.createElement('button');
+  b.className = 'small ghost';
+  b.textContent = '나이 추정';
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    b.textContent = '추정 중…';
+    try {
+      const r = await api(`/v1/results/${encodeURIComponent(rid)}/images/${encodeURIComponent(im.key)}/age`);
+      const target = im.age ?? (im.key.startsWith('age') ? Number(im.key.slice(3)) : null);
+      const diff = target == null ? '' : ` (${r.age - target >= 0 ? '+' : ''}${Math.round(r.age - target)})`;
+      const s = document.createElement('span');
+      s.textContent = `추정 나이 ${Math.round(r.age)}세${diff}`;
+      s.title = `${r.age}세 · ${r.seconds}초`;
+      b.replaceWith(s);
+    } catch (e) {
+      b.disabled = false;
+      b.textContent = '나이 추정 (실패: ' + e.message + ')';
+    }
+  });
+  return b;
+}
+
 function figure(rid, im, extraButtons) {
   const fig = document.createElement('figure');
   const img = document.createElement('img');
@@ -95,6 +119,7 @@ function figure(rid, im, extraButtons) {
   a.textContent = 'PNG';
   a.download = `${rid}_${im.key}.png`;
   cap.append(a);
+  if (/^(age\d+|face|input)$/.test(im.key)) cap.append(ageButton(rid, im));
   if (extraButtons) cap.append(...extraButtons);
   fig.append(cap);
   blobUrl(im.url).then(u => { img.src = u; a.href = u; }).catch(e => cap.append(' 이미지 실패 ' + e.message));
