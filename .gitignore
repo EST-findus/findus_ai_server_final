@@ -49,3 +49,6 @@ Thumbs.db
 desktop.ini
 .DS_Store
 *.log
+
+### grphify 관련 내용
+graphify-out

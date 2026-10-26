@@ -34,8 +34,8 @@ WORKBENCH_REMOTE = os.getenv("WORKBENCH_REMOTE", "").lower() == "true"  # true +
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 JAVA_API_URL = os.getenv("JAVA_API_URL", 
                         # 백엔드 진입점
-                        #  "http://127.0.0.1:18080"
+                         "http://127.0.0.1:18080"
                         # 배포 백엔드 진입점
-                        "https://port-0-findus-backend-mvivqotb15bbb5fd.sel3.cloudtype.app"
+                        # "https://port-0-findus-backend-mvivqotb15bbb5fd.sel3.cloudtype.app"
                          ).rstrip("/")  # 실종아동 DB 를 가진 Java 백엔드 (작업 화면 전용)
 JAVA_TIMEOUT = float(os.getenv("JAVA_TIMEOUT", "30"))                              # Java 요청 최대 대기(초)
