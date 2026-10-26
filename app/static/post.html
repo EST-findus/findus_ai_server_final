@@ -83,13 +83,16 @@
 
   <!-- 안경 -->
   <section>
-    <h2>안경 <span class="tag">POST /v1/glasses</span> <span class="tag todo">구현 전 (501)</span></h2>
-    <p class="hint">요청 형식만 정해 둔 상태. 지금은 서버가 501 을 돌려준다.</p>
+    <h2>안경 <span class="tag">POST /v1/glasses</span></h2>
+    <p class="hint">실제 안경 사진을 두 눈에 맞춰 합성한다. 테·그림자·렌즈가 닿지 않은 곳은 원본 그대로. 머리를 바꿀 거면 머리 먼저, 안경은 맨 마지막에.</p>
+    <div class="row"><div class="f"><span>안경 <b id="gl-name">-</b></span><div id="gl-styles" class="thumbs wide"><span class="status">목록 받는 중…</span></div></div></div>
     <div class="row">
-      <label class="f">안경 스타일<input id="gl-style" type="text" value="round"></label>
+      <label class="f"><span>안경 크기 <b id="gl-scale-v">1.00</b></span><input id="gl-scale" type="range" min="0.85" max="1.15" step="0.05" value="1"></label>
       <button id="gl-run">안경 씌우기</button>
+      <button id="gl-both" class="ghost">두 종류 다 씌우기 (원본과 비교)</button>
     </div>
     <div id="gl-status" class="status"></div>
+    <div id="gl-compare"></div>
   </section>
 
   <!-- 결과 -->
@@ -151,6 +154,8 @@ async function loadBase(rid, onlyKey) {
     }
     if (m.sex) setRadio('sex', m.sex);
     done('base', `${KIND[m.kind] || m.kind} 결과 · ${m.sex === 'F' ? '여' : '남'} · ${m.created}` + (m.parent_id ? ` · 기준 ${m.parent_id}` : ''));
+    if (m.kind === 'glasses') done('hr', '기준이 안경 결과입니다. 머리 모델이 안경을 지울 수 있어요: 머리 먼저, 안경은 맨 마지막에.', false);
+    else $('hr-status').textContent = '';
     renderStyles();
   } catch (e) {
     base = null;
@@ -286,19 +291,106 @@ $('hr-run').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------- 안경
-$('gl-run').addEventListener('click', async () => {
+let glStyles = [], glStyle = null;
+$('gl-scale').addEventListener('input', e => $('gl-scale-v').textContent = Number(e.target.value).toFixed(2));
+
+function renderGlasses() {
+  const box = $('gl-styles');
+  box.innerHTML = '';
+  for (const st of glStyles) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = st.name;
+    const img = document.createElement('img');
+    img.alt = st.name;
+    const cap = document.createElement('span');
+    cap.textContent = st.name;
+    b.append(img, cap);
+    b.addEventListener('click', () => {
+      glStyle = st.key;
+      $('gl-name').textContent = st.name;
+      box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    });
+    box.append(b);
+    blobUrl(st.preview).then(u => img.src = u).catch(() => {});
+  }
+  if (glStyles.length) box.querySelector('button').click();
+}
+
+// 안경 결과의 이미지 아래 글: 안경 전 대비 ArcFace, 바뀐 픽셀 비율
+function glassesInfo(res) {
+  for (const im of res.images) {
+    const s = res.extra.identity?.[im.key]?.arcface, i = im.info || {};
+    im.info = {};
+    if (s != null) im.info['ArcFace(안경 전 대비)'] = s.toFixed(2);
+    if (i.changed_ratio != null) im.info['바뀐 픽셀'] = (i.changed_ratio * 100).toFixed(1) + '%';
+    if (i.had_glasses) im.info['원래 안경 있음'] = '';
+  }
+  return res;
+}
+
+async function runGlasses(style) {
   const form = new FormData();
   const err = addSource(form);
-  if (err) return done('gl', err, false);
-  form.append('style', $('gl-style').value);
-  busy('gl', true, '요청 중');
+  if (err) throw new Error(err);
+  form.append('style', style);
+  form.append('scale', $('gl-scale').value);
+  const res = glassesInfo(await api('/v1/glasses', form));
+  remember(res);
+  addRun(res);
+  return res;
+}
+
+// 원본 · 얇은 동그란 테 · 검정 뿔테를 키(나이)마다 한 줄로
+function showCompare(results) {
+  const box = $('gl-compare');
+  box.innerHTML = '';
+  const first = results[0];
+  for (const im of first.images) {
+    const grid = document.createElement('div');
+    grid.className = 'grid compare';
+    if (first.parent_id) {
+      grid.append(figure(first.parent_id, { key: im.key, label: `원본 ${imgLabel(im)}`,
+                                            url: `/v1/results/${first.parent_id}/images/${im.key}.png` }));
+    } else {  // 올린 사진: 정렬 전 사진을 그대로 보여 준다
+      const fig = document.createElement('figure');
+      fig.innerHTML = '<img alt="원본"><figcaption><b>원본 (올린 사진, 정렬 전)</b></figcaption>';
+      fig.querySelector('img').src = $('base-preview').src;
+      grid.append(fig);
+    }
+    for (const res of results) {
+      const r = res.images.find(x => x.key === im.key);
+      const name = (glStyles.find(s => s.key === res.extra.style) || {}).name || res.extra.style;
+      grid.append(figure(res.result_id, { ...r, label: name }));
+    }
+    box.append(grid);
+  }
+}
+
+$('gl-run').addEventListener('click', async () => {
+  if (!glStyle) return done('gl', '안경을 고르세요.', false);
+  busy('gl', true, '안경 씌우는 중');
   try {
-    const res = await api('/v1/glasses', form);
+    const res = await runGlasses(glStyle);
     busy('gl', false);
-    done('gl', `완료 ${res.seconds}초`);
-    remember(res);
-    addRun(res);
+    done('gl', `완료 ${res.seconds}초 · result_id ${res.result_id}`);
+    showCompare([res]);
+    renderRecent(base && base.result_id);
   } catch (e) { busy('gl', false); done('gl', e.message, false); }
+});
+
+$('gl-both').addEventListener('click', async () => {
+  $('gl-both').disabled = true;
+  busy('gl', true, '두 종류 씌우는 중');
+  try {
+    const results = [];
+    for (const st of glStyles) results.push(await runGlasses(st.key));
+    busy('gl', false);
+    done('gl', '완료 ' + results.map(r => `${r.extra.style} ${r.seconds}초`).join(' · '));
+    showCompare(results);
+    renderRecent(base && base.result_id);
+  } catch (e) { busy('gl', false); done('gl', e.message, false); }
+  $('gl-both').disabled = false;
 });
 
 // ---------------------------------------------------------------- 결과 기록
@@ -334,6 +426,8 @@ function addRun(res) {
 renderRecent();
 api('/v1/hair/styles').then(p => { presets = p; renderStyles(); renderColors(); })
   .catch(e => done('hr', '스타일 목록을 못 받음: ' + e.message, false));
+api('/v1/glasses/styles').then(p => { glStyles = p.styles; renderGlasses(); })
+  .catch(e => done('gl', '안경 목록을 못 받음: ' + e.message, false));
 const qid = new URLSearchParams(location.search).get('result_id');
 if (qid) loadBase(qid);
 else if (recent().length) loadBase(recent()[0].result_id);

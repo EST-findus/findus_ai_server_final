@@ -8,7 +8,8 @@ class ImageOut(BaseModel):
     key: str = Field(description="이미지 키. 나이 변환이면 'age30', 올린 사진에 바로 적용했으면 'face'")
     age: Optional[int] = Field(None, description="목표 나이 (나이 변환 결과에서 이어졌을 때)")
     url: str = Field(description="PNG 주소 (FFHQ 정렬 1024x1024)")
-    info: Dict = Field(default_factory=dict, description="단계별 정보 (머리: 쓴 참조 ref, 배율 scale, 색 차이 color_dE)")
+    info: Dict = Field(default_factory=dict, description="단계별 정보 (머리: 쓴 참조 ref, 배율 scale, 색 차이 color_dE. "
+                                                         "안경: had_glasses(원래 안경을 썼나), eyes(찾은 두 눈), changed_ratio(바뀐 픽셀 비율), width_ratio(테 폭/얼굴 폭))")
 
 
 class ResultOut(BaseModel):
@@ -46,9 +47,16 @@ class HairStylesOut(BaseModel):
     colors: List[HairColor]
 
 
+class GlassesStyle(BaseModel):
+    key: str = Field(description="POST /v1/glasses 의 style")
+    name: str
+    preview: str = Field(description="안경 사진 미리보기 PNG 주소 (얼굴 없음)")
+
+
 class GlassesStylesOut(BaseModel):
     implemented: bool
-    styles: List[Dict]
+    scale: List[float] = Field(description="scale(안경 크기 배율) 범위 [최소, 최대]")
+    styles: List[GlassesStyle]
 
 
 class HealthOut(BaseModel):

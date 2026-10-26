@@ -4,7 +4,7 @@
 
     POST /v1/aging     사진 + 나이 → 그 나이 얼굴
     POST /v1/hair      나이 변환 결과(result_id) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴
-    POST /v1/glasses   (아직 구현 전, 501) 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴
+    POST /v1/glasses   결과 또는 사진 + 안경(얇은 동그란 테 / 검정 뿔테) → 안경 씌운 얼굴
     GET  /v1/results/{result_id}                    결과 정보
     GET  /v1/results/{result_id}/images/{key}.png   결과 이미지
 
@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+from src.glasses import SCALE_LIMIT as GLASSES_SCALE, STYLES as GLASSES  # noqa: E402
 from src.hair_fit import USER_LIMIT  # noqa: E402
 
 from . import java_client, store  # noqa: E402
@@ -227,25 +228,34 @@ def hair(result_id: Optional[str] = Form(None, description="이전 결과 id (�
     return _result(meta, time.time() - t0, info, extra)
 
 
-# ---------------------------------------------------------------- 3. 안경 (구현 전)
+# ---------------------------------------------------------------- 3. 안경
 
-@v1.get("/glasses/styles", response_model=GlassesStylesOut, summary="안경 스타일 (구현 전이라 비어 있음)")
+@v1.get("/glasses/styles", response_model=GlassesStylesOut, summary="고를 수 있는 안경")
 def glasses_styles():
-    return {"implemented": False, "styles": []}
+    return {"implemented": True, "scale": list(GLASSES_SCALE),
+            "styles": [{"key": k, "name": n, "preview": f"/v1/glasses/styles/{k}/preview.png"} for k, n in GLASSES.items()]}
 
 
-@v1.post("/glasses", response_model=ResultOut, summary="안경 씌우기 (구현 전: 501)",
-         responses={501: {"description": "아직 구현 전"}})
-def glasses(result_id: Optional[str] = Form(None, description="이전 결과 id (머리 결과 등). image 와 둘 중 하나"),
+@v1.get("/glasses/styles/{key}/preview.png", summary="안경 사진 미리보기 (얼굴 없음)")
+def glasses_preview(key: str):
+    if key not in GLASSES:
+        raise store.NotFound(f"안경 없음: {key}")
+    return FileResponse(engine.glasses_preview(key), media_type="image/png")
+
+
+@v1.post("/glasses", response_model=ResultOut, summary="안경 씌우기 (얇은 동그란 테 / 검정 뿔테)")
+def glasses(result_id: Optional[str] = Form(None, description="이전 결과 id (나이 변환·머리 결과 등). image 와 둘 중 하나"),
             keys: Optional[str] = Form(None, description="result_id 의 이미지 중 일부만. 비우면 전부"),
             image: Optional[UploadFile] = File(None, description="얼굴 사진"),
             sex: Optional[str] = Form(None, description="M | F. image 를 올렸을 때 필수"),
-            style: str = Form(..., description="안경 스타일 key (GET /v1/glasses/styles)")):
+            style: str = Form(..., description="thin_round(얇은 동그란 테) | horn_black(검정 뿔테)"),
+            scale: float = Form(1.0, ge=GLASSES_SCALE[0], le=GLASSES_SCALE[1],
+                                description=f"안경 크기 배율 ({GLASSES_SCALE[0]}~{GLASSES_SCALE[1]})")):
     images, sex, parent, align = _source(result_id, keys, image, sex)
     t0 = time.time()
-    out, info = engine.glasses(images, style, align)
-    meta = store.save("glasses", out, sex, parent, style=style)
-    return _result(meta, time.time() - t0, info, {"style": style})
+    out, info, identity = engine.glasses(images, style, scale, align)
+    meta = store.save("glasses", out, sex, parent, style=style, scale=scale)
+    return _result(meta, time.time() - t0, info, {"style": style, "scale": scale, "identity": identity})
 
 
 # ---------------------------------------------------------------- 결과

@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 import yaml
 
+from src import glasses as glasses_mod
 from src.align import ffhq_align
 from src.hair_color import HairMask, hair_delta_e, recolor
 from src.hairstyle import HairPost, hair_only
@@ -288,10 +289,54 @@ class Engine:
                             [cv2.IMWRITE_JPEG_QUALITY, 90])
         return out
 
-    # ---------------------------------------------------------------- 3. 안경 (아직 없음)
+    # ---------------------------------------------------------------- 3. 안경
 
-    def glasses(self, images: Dict[str, np.ndarray], style: str, align: bool) -> tuple:
-        raise NotReady("안경 씌우기는 아직 구현 전입니다. 요청 형식은 docs/[00]_서버_구성_계획.md 5-3 을 보세요.")
+    def glasses(self, images: Dict[str, np.ndarray], style: str, scale: float, align: bool) -> tuple:
+        """{키: 얼굴} → {키: 안경 쓴 얼굴}, {키: 정보}, {키: {arcface: 안경 전 대비}}. 안경 사진 합성 (src/glasses.py).
+        얼굴 분할·합성은 CPU 라서 나이·머리 모델을 내리지 않는다. 올린 사진 정렬과 신원 점수만 GPU 차례를 받는다."""
+        if style not in glasses_mod.STYLES:
+            raise BadInput(f"모르는 안경입니다: {style} (GET /v1/glasses/styles)")
+        try:
+            asset = glasses_mod.load(style)
+        except FileNotFoundError as e:
+            raise BadInput(str(e))
+        cfg = config()
+        post = self._hair or HairPost(detector=cfg["detector"])  # 검출기만 잠깐 쓴다 (HairFast 는 안 올린다)
+        if align:
+            with self.gpu():
+                try:
+                    images = post.align(images)
+                except ValueError as e:
+                    raise BadInput(str(e))
+        out, info = {}, {}
+        with self._thumb_lock:  # 썸네일과 같은 CPU 얼굴 분할을 같이 쓴다
+            if self._thumb_parser is None:
+                self._thumb_parser = HairMask("cpu")
+            for k, img in images.items():
+                try:
+                    out[k], info[k] = glasses_mod.apply(img, self._thumb_parser.parse(img), asset, scale)
+                except ValueError as e:
+                    raise BadInput(f"{k}: {e}")
+        if not (WEIGHTS / "arcface" / "w600k_r50.onnx").exists():  # 점수는 참고용이라 가중치가 없으면 안경만 씌운다
+            return out, info, {}
+        with self.gpu():
+            scores = post._score(images, out, ["arcface"])
+        identity = {k: {n: round(v, 3) for n, v in s.items()} for k, s in scores.items()}
+        return out, info, identity
+
+    def glasses_preview(self, style: str) -> Path:
+        """안경 카드용 미리보기 PNG (처음 한 번 만들어 둔다, 얼굴 없음)."""
+        if style not in glasses_mod.STYLES:
+            raise BadInput(f"모르는 안경입니다: {style}")
+        out = glasses_mod.ASSETS / "_preview" / f"{style}.png"
+        if not out.exists():
+            try:
+                img = glasses_mod.preview(style)
+            except FileNotFoundError as e:
+                raise BadInput(str(e))
+            out.parent.mkdir(parents=True, exist_ok=True)
+            imwrite_rgb(out, img)
+        return out
 
 
 engine = Engine()

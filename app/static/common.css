@@ -53,6 +53,9 @@ figcaption a { color: var(--accent); }
 .thumbs button { padding: 0; background: none; border: 2px solid transparent; border-radius: 8px; overflow: hidden; }
 .thumbs button.on { border-color: var(--accent); }
 .thumbs img { width: 72px; height: 72px; display: block; object-fit: cover; }
+.thumbs.wide button { display: grid; gap: 2px; background: var(--chip); color: var(--text); font-size: 12px; font-weight: 600; padding-bottom: 4px; }
+.thumbs.wide img { width: 160px; height: 80px; object-fit: contain; background: #ececec; }
+.grid.compare { grid-template-columns: repeat(3, 1fr); }
 .thumbs .auto { width: 72px; height: 72px; display: grid; place-items: center; background: var(--chip); color: var(--text); font-size: 12px; }
 .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
 .swatches button { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }

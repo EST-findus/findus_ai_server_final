@@ -8,7 +8,7 @@ FindUs 얼굴 변환 API 서버. `ai_lab` 의 모델 코드와 가중치를 쓴�
 | `POST /v1/restore` | 사진 → CodeFormer 복원 얼굴 + 원본 대비 ArcFace. 보고 고른 뒤 그 `result_id` 로 나이 변환 (`weights/codeformer/codeformer.pth` 필요) | 동작 |
 | `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`). `result_id` 로 복원 얼굴을 넣으면 원본 대비 점수도 낸다 | 동작 |
 | `POST /v1/hair` | 나이 변환 결과(`result_id`) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴 | 동작 |
-| `POST /v1/glasses` | 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴 | 명세만 (501) |
+| `POST /v1/glasses` | 결과 또는 사진 + 안경(얇은 동그란 테 / 검정 뿔테) → 안경 씌운 얼굴 | 동작 (안경 사진 합성, 2~3초) |
 | `/v1/workbench/*` | 실종아동 DB 원본으로 나이 변환 → 고른 결과만 Java 를 거쳐 DB 저장 (시험 페이지 `/test/workbench`) | 동작 (로컬 전용) |
 
 구성·명세·근거는 [docs/[00]_서버_구성_계획.md](docs/[00]_서버_구성_계획.md).
@@ -126,15 +126,16 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 | 폴더 | 내용 | git |
 |---|---|---|
 | `app/` | FastAPI 서버, `java_client.py`(Java 백엔드 연동), `static/` 시험 페이지 (`aging.html` 나이 변환, `post.html` 후처리, `workbench.html` DB 원본 작업, 공통 `common.css`·`common.js`) | O |
-| `src/` | ai_lab/src 모델 코드 (복사, 고치지 않음) | O |
+| `src/` | 모델 코드 (처음에 ai_lab/src 에서 가져옴, 이제 여기서 고치고 새로 만듦) | O |
 | `configs/` | `final.yaml` (나이 변환 조합), `hair_presets.yaml` (ai_lab 과 같은 파일) | O |
-| `scripts/` | `sync_assets.py`(ai_lab 에서 복사), `download_assets.py`(공개 가중치 받기), `patch_third_party.py`(Windows 패치), `check_setup.py`(점검), `check_workbench.py`(DB 원본 작업 점검) | O |
+| `scripts/` | `sync_assets.py`(ai_lab 에서 복사), `download_assets.py`(공개 가중치 받기), `patch_third_party.py`(Windows 패치), `check_setup.py`(점검), `check_workbench.py`(DB 원본 작업 점검), `make_glasses_assets.py`(안경 사진 받아 만들기) | O |
 | `.runtime/`, `.venv/` | 이 PC의 Python 본체·설치용 임시 파일, 서버 가상환경 | X |
 | `weights/`, `third_party/` | 가중치, SAM·CodeFormer·HairFastGAN | X |
 | `data/hair_refs/` | 머리 참조 사진 (AI Hub, 재배포 금지) | X |
+| `data/glasses/` | 안경 사진 (CC0, `python scripts/make_glasses_assets.py` 로 받아 만듦) | X |
 | `outputs/` | 요청 결과 (얼굴 사진) | X |
 
-ai_lab 에서 모델 코드나 머리 목록을 바꾸면 `src/` 해당 파일과 `configs/hair_presets.yaml` 을 다시 복사하고 `python scripts/sync_assets.py` 를 한 번 더 돌린다. `configs/final.yaml` 은 서버용 조합(LoRA 없음, best_encoder)이라 ai_lab 파일로 덮어쓰지 않는다.
+`configs/final.yaml` 은 서버용 조합(LoRA 없음, best_encoder)이라 ai_lab 파일로 덮어쓰지 않는다.
 
 ## 최소 사양
 

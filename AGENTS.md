@@ -12,11 +12,11 @@
 
 - 숫자(처리 시간, 점수)는 실제로 잰 값만 쓴다. 모델 점수는 ai_lab 문서에서 출처와 dev/test 를 밝혀 가져온다.
 
-## 2. 모델은 ai_lab 이 기준이다
+## 2. 모델 코드
 
-- `src/`, `configs/hair_presets.yaml` 은 ai_lab 에서 복사한 것이다. 여기서 모델 동작을 바꾸지 않는다. 바꿀 일이 있으면 ai_lab 에서 실험하고 다시 복사한다.
+- `src/`, `configs/hair_presets.yaml` 은 처음에 ai_lab 에서 가져왔지만, 이제 모델 코드도 이 저장소 `src/` 에서 직접 고치고 새로 만든다 (안경 등, docs/[04]). 기존 모델 결과가 바뀌는 수정은 전후 결과를 비교해 `docs/[01]` 에 적는다.
 - `configs/final.yaml` 은 ai_lab 최종 모델에서 LoRA 를 빼고 `best_encoder.pt` 를 쓰는 서버용 조합이다 (docs/[00] 4-1). ai_lab 의 final.yaml 을 그대로 덮어쓰지 않는다.
-- 서버 코드는 `app/` 에만 쓴다.
+- 서버 코드는 `app/`, 모델 코드는 `src/` 에 쓴다.
 - 학습 손실에는 IR-SE50, 평가에는 ArcFace·AdaFace. **학습용과 평가용 얼굴인식 망을 섞지 않는다.**
 - GPU 6GB: 한 번에 한 요청, 나이 변환과 HairFastGAN 은 같이 올리지 않는다 (`app/engine.py`). 새 단계(안경 등)도 이 방식을 따른다.
 
