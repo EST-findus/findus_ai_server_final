@@ -46,11 +46,13 @@
       <label class="f">나이 인코더<select id="wb-encoder"></select></label>
       <label class="f"><span>나이 변환 강도 <b id="wb-strength-v">1.0</b></span><input id="wb-strength" type="range" min="0" max="2" step="0.1" value="1"></label>
       <label class="f"><span>성별 보정 세기 <b id="wb-gs-v">2.0</b></span><input id="wb-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
+      <label class="f"><span>복원 w <b id="wb-w-v">0.5</b></span><input id="wb-w" type="range" min="0" max="1" step="0.1" value="0.5"></label>
       <button id="wb-restore" class="ghost">CodeFormer 복원</button>
       <button id="wb-run">나이 변환</button>
     </div>
-    <p class="hint">CodeFormer 복원: 복원한 얼굴만 먼저 보여준다. 마음에 들면 그 결과의 "이 얼굴로 나이 변환" 을 누른다. 그냥 "나이 변환" 은 원본으로 한다. 복원 결과 자체는 DB 에 저장하지 않는다.</p>
+    <p class="hint">CodeFormer 복원: 복원한 얼굴만 먼저 이 아래에 보여준다. 복원 w 는 0 이면 강하게 보정, 1 이면 원본 유지 (기본 0.5). 마음에 들면 그 결과의 "이 얼굴로 나이 변환" 을 누른다. 그냥 "나이 변환" 은 원본으로 한다. 복원 결과 자체는 DB 에 저장하지 않는다.</p>
     <div id="wb-status" class="status"></div>
+    <div id="wb-restored"></div>
   </section>
 
   <section>
@@ -81,6 +83,7 @@ let page = 0, totalPages = 1, current = null, sourceId = null;
 
 $('wb-strength').addEventListener('input', e => $('wb-strength-v').textContent = Number(e.target.value).toFixed(1));
 $('wb-gs').addEventListener('input', e => $('wb-gs-v').textContent = Number(e.target.value).toFixed(1));
+$('wb-w').addEventListener('input', e => $('wb-w-v').textContent = Number(e.target.value).toFixed(1));
 
 api('/v1/aging/encoders').then(r => {
   const sel = $('wb-encoder');
@@ -202,12 +205,14 @@ $('wb-run').addEventListener('click', () => {
 
 $('wb-restore').addEventListener('click', () => {
   if (!current || !sourceId) return done('wb', '아동과 원본 사진을 고르세요.', false);
-  call('/v1/workbench/restore', sourceForm(current.id, sourceId), `${current.name} CodeFormer 복원 중`, '', addRestore);
+  const form = sourceForm(current.id, sourceId);
+  form.append('w', $('wb-w').value);
+  call('/v1/workbench/restore', form, `${current.name} CodeFormer 복원 중`, '', addRestore);
 });
 
-function addRestore(res) {
-  const box = $('wb-runs');
-  if (!box.querySelector('.run')) box.innerHTML = '';
+function addRestore(res) {  // 나이 변환 버튼 바로 아래에 마지막 복원 하나만
+  const box = $('wb-restored');
+  box.innerHTML = '';
   const run = document.createElement('div');
   run.className = 'run';
   const head = document.createElement('div');
@@ -216,7 +221,7 @@ function addRestore(res) {
   who.textContent = res.origin.person_name || res.origin.person_id;
   const st = document.createElement('span');
   st.className = 'status';
-  st.textContent = `${res.result_id} · CodeFormer 복원 · ${res.seconds}초` + (res.extra.colorized ? ' · 흑백이라 컬러화함' : '');
+  st.textContent = `${res.result_id} · CodeFormer 복원 (w ${Number(res.extra.w ?? 0.5).toFixed(1)}) · ${res.seconds}초` + (res.extra.colorized ? ' · 흑백이라 컬러화함' : '');
   const go = document.createElement('button');
   go.className = 'small';
   go.textContent = '이 얼굴로 나이 변환';
@@ -228,7 +233,7 @@ function addRestore(res) {
   head.append(who, st, go);
   addScores(res);
   run.append(head, resultGrid(res));
-  box.prepend(run);
+  box.append(run);
 }
 
 function addRun(res) {

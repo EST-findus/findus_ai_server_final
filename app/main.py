@@ -144,9 +144,9 @@ def _restored(result_id: str) -> tuple:
     return imgs["face"], imgs["input"], m
 
 
-def _run_restore(img: np.ndarray, **meta_extra) -> dict:
+def _run_restore(img: np.ndarray, w: float, **meta_extra) -> dict:
     t0 = time.time()
-    images, extra = engine.restore(img)
+    images, extra = engine.restore(img, w)
     meta = store.save("restore", images, None, **extra, **meta_extra)
     store.cleanup()
     return _result(meta, time.time() - t0, extra=extra)
@@ -155,8 +155,9 @@ def _run_restore(img: np.ndarray, **meta_extra) -> dict:
 # ---------------------------------------------------------------- 0. 복원 (골랐을 때만)
 
 @v1.post("/restore", response_model=ResultOut, summary="사진 → CodeFormer 복원 얼굴 (보고 고른 뒤 나이 변환에 넣는다)")
-def restore(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화 후 복원)")):
-    return _run_restore(_decode(image))
+def restore(image: UploadFile = File(..., description="어릴 때 얼굴 사진 (jpg/png, 흑백이면 자동 컬러화 후 복원)"),
+            w: float = Form(0.5, ge=0, le=1, allow_inf_nan=False, description="CodeFormer 충실도 (0 = 강하게 보정, 1 = 원본 유지, 기본 0.5)")):
+    return _run_restore(_decode(image), w)
 
 
 # ---------------------------------------------------------------- 1. 나이 변환
@@ -305,9 +306,10 @@ def _wb_original(person_id: str, source_image_id: str) -> tuple:
 
 @wb.post("/restore", response_model=ResultOut, summary="DB 원본 → CodeFormer 복원 얼굴 (보고 고른 뒤 나이 변환에 넣는다)")
 def wb_restore(person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
-               source_image_id: str = Form(..., description="그 아동의 원본 사진 id")):
+               source_image_id: str = Form(..., description="그 아동의 원본 사진 id"),
+               w: float = Form(0.5, ge=0, le=1, allow_inf_nan=False, description="CodeFormer 충실도 (0 = 강하게 보정, 1 = 원본 유지, 기본 0.5)")):
     img, origin = _wb_original(person_id, source_image_id)
-    return _run_restore(img, origin=origin)
+    return _run_restore(img, w, origin=origin)
 
 
 @wb.post("/aging", response_model=ResultOut, summary="DB 원본 + 나이 → 나이 변환 (결과에 원본 연결 정보를 남긴다)")

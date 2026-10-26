@@ -136,15 +136,16 @@ class Engine:
 
     # ---------------------------------------------------------------- 0. 복원 (골랐을 때만, 나이 변환 전에)
 
-    def restore(self, img: np.ndarray) -> tuple:
+    def restore(self, img: np.ndarray, w: float = 0.5) -> tuple:
         """사진 → {'face': 복원 얼굴, 'input': 복원 전 정렬 얼굴} (FFHQ 정렬 1024), 정보.
-        흐름: 검출 → FFHQ 정렬 → 흑백이면 컬러화 → CodeFormer 복원(w=0.5) → 원본 대비 ArcFace.
+        흐름: 검출 → FFHQ 정렬 → 흑백이면 컬러화 → CodeFormer 복원 → 원본 대비 ArcFace.
+        w: CodeFormer 충실도 0~1. 0 에 가까울수록 강하게 보정(화질 우선), 1 에 가까울수록 원본 유지.
         final.yaml 은 복원을 꺼 두었다 (신원을 깎았다, ai_lab docs/[15]). 그래서 결과를 눈으로 보고 고르게 따로 둔다."""
         if not (WEIGHTS / "codeformer" / "codeformer.pth").exists():
             raise BadInput("복원 가중치가 없습니다: weights/codeformer/codeformer.pth (CodeFormer v0.1.0 릴리스에서 받기)")
         cfg = config()
         cfg["keep_loaded"] = False  # 가끔 쓰는 단계라 쓰고 바로 내린다
-        cfg["restorer"] = {"name": "codeformer", "position": "before"}
+        cfg["restorer"] = {"name": "codeformer", "position": "before", "w": float(w)}
         cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]
         with self.gpu():
             self._free_hair()
@@ -155,17 +156,17 @@ class Engine:
             if pipe.colorize_on:
                 pipe._section(pipe._colorize_all, works)
             pipe._section(pipe._restore_all, works, "before")
-            w = works[0]
-            if w.error is None:
-                w.result.outputs = {0: w.result.restored}  # 평가 섹션은 outputs 를 원본 사진과 비교한다
+            work = works[0]
+            if work.error is None:
+                work.result.outputs = {0: work.result.restored}  # 평가 섹션은 outputs 를 원본 사진과 비교한다
                 pipe._section(pipe._evaluate_all, works)
-        if isinstance(w.error, ValueError):  # 얼굴을 못 찾음
-            raise BadInput(str(w.error))
-        if w.error is not None:
-            raise w.error
-        r = w.result
+        if isinstance(work.error, ValueError):  # 얼굴을 못 찾음
+            raise BadInput(str(work.error))
+        if work.error is not None:
+            raise work.error
+        r = work.result
         images = {"face": r.restored, "input": r.gray_input if r.colorized else r.aligned}
-        return images, {"colorized": bool(r.colorized),
+        return images, {"w": float(w), "colorized": bool(r.colorized),
                         "color_spread": None if r.color_spread is None else round(r.color_spread, 2),
                         "identity": {"face": {n: round(v["vs_input"], 3) for n, v in r.scores[0].items()}}}
 

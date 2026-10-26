@@ -105,7 +105,8 @@ def fake_age(img, ages, sex, gender_strength, strength=1.0, encoder=None, origin
     return {f"age{a}": np.full((16, 16, 3), a, np.uint8) for a in ages}, info
 
 
-def fake_restore(img):
+def fake_restore(img, w=0.5):
+    fake_restore.w = w
     return {"face": np.full((16, 16, 3), 7, np.uint8), "input": np.full((16, 16, 3), 3, np.uint8)},         {"colorized": False, "identity": {"face": {"arcface": 0.9}}}
 
 
@@ -207,9 +208,11 @@ class WorkbenchCheck(unittest.TestCase):
         self.assertEqual(json.loads(FakeJava.saves[(hair["result_id"], "age30")]["options"])["encoder"], "other.pt")
 
     def test_복원_얼굴로_변환하면_원본_대비_점수와_복원_여부를_남긴다(self):
-        status, rest = call("POST", "/v1/workbench/restore", {"person_id": PERSON, "source_image_id": SOURCE})
+        status, rest = call("POST", "/v1/workbench/restore", {"person_id": PERSON, "source_image_id": SOURCE, "w": "0.7"})
         self.assertEqual(status, 200, rest)
-        self.assertEqual((rest["kind"], rest["origin"]["person_id"]), ("restore", PERSON))
+        self.assertEqual((rest["kind"], rest["origin"]["person_id"], fake_restore.w), ("restore", PERSON, 0.7))
+        status, _ = call("POST", "/v1/workbench/restore", {"person_id": PERSON, "source_image_id": SOURCE, "w": "1.5"})
+        self.assertEqual(status, 422)  # 0~1 밖은 거절
         self.assertEqual(sorted(im["key"] for im in rest["images"]), ["face", "input"])
         res = self.aging(result_id=rest["result_id"])
         self.assertEqual((int(fake_age.img[0, 0, 0]), int(fake_age.original[0, 0, 0])), (7, 3))  # 복원 얼굴로, 원본은 기준으로
