@@ -5,7 +5,8 @@ FindUs 얼굴 변환 API 서버. `ai_lab` 의 모델 코드와 가중치를 쓴�
 
 | API | 하는 일 | 상태 |
 |---|---|---|
-| `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`) | 동작 |
+| `POST /v1/restore` | 사진 → CodeFormer 복원 얼굴 + 원본 대비 ArcFace. 보고 고른 뒤 그 `result_id` 로 나이 변환 (`weights/codeformer/codeformer.pth` 필요) | 동작 |
+| `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`). `result_id` 로 복원 얼굴을 넣으면 원본 대비 점수도 낸다 | 동작 |
 | `POST /v1/hair` | 나이 변환 결과(`result_id`) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴 | 동작 |
 | `POST /v1/glasses` | 결과 또는 사진 + 안경 스타일 → 안경 씌운 얼굴 | 명세만 (501) |
 | `/v1/workbench/*` | 실종아동 DB 원본으로 나이 변환 → 고른 결과만 Java 를 거쳐 DB 저장 (시험 페이지 `/test/workbench`) | 동작 (로컬 전용) |
@@ -117,6 +118,7 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 | 요청 | 시간 |
 |---|---|
 | 나이 변환, 나이 2개 | 13.0초 |
+| CodeFormer 복원 (`/v1/restore`, 엔진 직접 호출) | 6.6초 |
 | 머리 스타일 + 색, 1장 (모델 처음 올릴 때) | 58.2~81.8초 |
 
 ## 폴더
