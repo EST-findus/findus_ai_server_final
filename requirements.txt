@@ -33,6 +33,9 @@ dill
 # 나이 변환 신원 점수 (ArcFace w600k_r50.onnx, CPU 로 돌아서 GPU 용 onnxruntime-gpu 는 필요 없음)
 onnxruntime==1.19.2
 
+# 결과 추정 나이 (MiVOLO). torch 를 올리지 않게 따로: pip install timm==0.8.13.dev0 --no-deps
+# timm==0.8.13.dev0
+
 # 가중치 받기 (scripts/download_assets.py)
 gdown==5.2.0
 
