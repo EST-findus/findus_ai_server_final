@@ -2,7 +2,7 @@
 const $ = id => document.getElementById(id);
 const radio = name => document.querySelector(`input[name=${name}]:checked`).value;
 const setRadio = (name, v) => { const el = document.querySelector(`input[name=${name}][value=${v}]`); if (el) el.checked = true; };
-const KIND = { aging: '나이 변환', hair: '머리', makeup: '화장', glasses: '안경' };
+const KIND = { restore: '복원', aging: '나이 변환', hair: '머리', makeup: '화장', glasses: '안경' };
 
 // ---------------------------------------------------------------- 저장 (브라우저에만, 없어도 동작)
 const store = {
@@ -70,7 +70,18 @@ function forget(rid) { store.set('recent', recent().filter(r => r.result_id !== 
 const label = r => `${KIND[r.kind] || r.kind} · ${r.keys ? r.keys.join(',') : ''} · ${r.result_id}`;
 
 // ---------------------------------------------------------------- 결과 그리기
-const imgLabel = im => im.age != null ? `${im.age}세` : im.key.startsWith('age') ? `${im.key.slice(3)}세` : im.key === 'face' ? '사진' : im.key;
+const imgLabel = im => im.label ? im.label : im.age != null ? `${im.age}세` : im.key.startsWith('age') ? `${im.key.slice(3)}세` : im.key === 'face' ? '사진' : im.key;
+
+// 신원 점수(ArcFace)를 이미지 아래에. 복원 결과는 원본 대비, 복원 얼굴로 변환한 결과는 복원 대비·원본 대비 둘 다
+function addScores(res) {
+  for (const im of res.images) {
+    const s = res.extra.identity?.[im.key]?.arcface, o = res.extra.identity_original?.[im.key]?.arcface;
+    const name = res.kind === 'restore' ? 'ArcFace(원본 대비)' : o != null ? 'ArcFace(복원 대비)' : 'ArcFace';
+    if (s != null) im.info = { ...im.info, [name]: s.toFixed(2) };
+    if (o != null) im.info = { ...im.info, 'ArcFace(원본 대비)': o.toFixed(2) };
+    if (res.kind === 'restore') im.label = im.key === 'input' ? '원본 (정렬)' : '복원';
+  }
+}
 
 function figure(rid, im, extraButtons) {
   const fig = document.createElement('figure');

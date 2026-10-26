@@ -13,12 +13,12 @@ class ImageOut(BaseModel):
 
 class ResultOut(BaseModel):
     result_id: str = Field(description="이 결과의 id. 다음 단계(머리·안경) 요청에 넣으면 그 위에 쌓인다")
-    kind: str = Field(description="aging | hair | glasses")
+    kind: str = Field(description="restore | aging | hair | glasses")
     parent_id: Optional[str] = Field(None, description="이어서 만든 이전 결과의 id")
     sex: Optional[str] = None
     seconds: float = Field(description="처리 시간 (GPU 대기 포함)")
     images: List[ImageOut]
-    extra: Dict = Field(default_factory=dict, description="나이 변환: colorized(흑백이라 컬러화했는가), 옵션 값 등")
+    extra: Dict = Field(default_factory=dict, description="나이 변환: colorized(흑백이라 컬러화했는가), identity(입력 대비 ArcFace), restore(복원 얼굴로 했는가), identity_original(복원 전 원본 대비), 옵션 값 등. 복원: identity.face(원본 대비)")
     origin: Optional[Dict] = Field(None, description="DB 원본으로 만든 결과의 연결 정보 (person_id, source_image_id, person_name, model, encoder). "
                                                      "이것이 있는 결과만 DB 저장 대상")
 

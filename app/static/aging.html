@@ -37,10 +37,14 @@
       <label class="f">나이 인코더<select id="ag-encoder"></select></label>
       <label class="f"><span>나이 변환 강도 <b id="ag-strength-v">1.0</b></span><input id="ag-strength" type="range" min="0" max="2" step="0.1" value="1" aria-describedby="ag-strength-hint"></label>
       <label class="f"><span>성별 보정 세기 <b id="ag-gs-v">2.0</b></span><input id="ag-gs" type="range" min="0" max="5" step="0.5" value="2"></label>
+      <label class="f"><span>복원 w <b id="ag-w-v">0.5</b></span><input id="ag-w" type="range" min="0" max="1" step="0.1" value="0.5"></label>
+      <button id="ag-restore" class="ghost">CodeFormer 복원</button>
       <button id="ag-run">나이 변환</button>
     </div>
+    <p class="hint">CodeFormer 복원: 복원한 얼굴만 먼저 이 아래에 보여준다. 복원 w 는 0 이면 강하게 보정, 1 이면 원본 유지 (기본 0.5). 마음에 들면 그 결과의 "이 얼굴로 나이 변환" 을 누른다. 그냥 "나이 변환" 은 원본으로 한다.</p>
     <p id="ag-strength-hint" class="hint">나이 변환 강도: 0은 나이 변화 끄기, 1은 기본, 2는 강하게. 0에서도 얼굴 재구성과 성별 보정은 적용됩니다.</p>
     <div id="ag-status" class="status"></div>
+    <div id="ag-restored"></div>
   </section>
 
   <section>
@@ -66,6 +70,7 @@ $('ag-image').addEventListener('change', e => {
 });
 $('ag-strength').addEventListener('input', e => $('ag-strength-v').textContent = Number(e.target.value).toFixed(1));
 $('ag-gs').addEventListener('input', e => $('ag-gs-v').textContent = Number(e.target.value).toFixed(1));
+$('ag-w').addEventListener('input', e => $('ag-w-v').textContent = Number(e.target.value).toFixed(1));
 
 api('/v1/aging/encoders').then(r => {
   const sel = $('ag-encoder');
@@ -82,7 +87,7 @@ function addRun(res, file) {
   head.className = 'run-head';
   const sexTxt = res.sex === 'F' ? '여' : '남';
   head.innerHTML = `<b>${res.result_id}</b><span class="status">${sexTxt} · ${res.seconds}초 · ${res.extra.encoder ?? ''} · 나이 강도 ${Number(res.extra.strength ?? 1).toFixed(1)} · 성별 보정 ${res.extra.gender_strength}` +
-                   (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
+                   (res.extra.restore ? ' · 복원 얼굴로' : '') + (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
   const go = document.createElement('button');
   go.className = 'small';
   go.textContent = '후처리로 →';
@@ -90,10 +95,7 @@ function addRun(res, file) {
   head.append(go);
   run.append(head);
 
-  for (const im of res.images) {  // 입력 사진 대비 ArcFace 신원 점수를 이미지 아래에
-    const s = res.extra.identity?.[im.key]?.arcface;
-    if (s != null) im.info = { ...im.info, ArcFace: s.toFixed(2) };
-  }
+  addScores(res);
   const grid = resultGrid(res);
   if (file) {  // 비교용으로 올린 사진을 맨 앞에
     const fig = document.createElement('figure');
@@ -104,24 +106,64 @@ function addRun(res, file) {
   box.prepend(run);
 }
 
-$('ag-run').addEventListener('click', async () => {
-  const f = $('ag-image').files[0];
-  if (!f) return done('ag', '사진을 고르세요.', false);
+function addRestore(res) {  // 나이 변환 버튼 바로 아래에 마지막 복원 하나만
+  const box = $('ag-restored');
+  box.innerHTML = '';
+  const run = document.createElement('div');
+  run.className = 'run';
+  const head = document.createElement('div');
+  head.className = 'run-head';
+  head.innerHTML = `<b>${res.result_id}</b><span class="status">CodeFormer 복원 (w ${Number(res.extra.w ?? 0.5).toFixed(1)}) · ${res.seconds}초` +
+                   (res.extra.colorized ? ' · 흑백이라 컬러화함' : '') + '</span>';
+  const go = document.createElement('button');
+  go.className = 'small';
+  go.textContent = '이 얼굴로 나이 변환';
+  go.addEventListener('click', () => { const form = agingForm(); form.append('result_id', res.result_id); runAging(form, null); });
+  head.append(go);
+  addScores(res);
+  run.append(head, resultGrid(res));
+  box.append(run);
+}
+
+function agingForm() {
   const form = new FormData();
-  form.append('image', f);
   form.append('ages', $('ag-ages').value);
   form.append('sex', radio('ag-sex'));
   form.append('strength', $('ag-strength').value);
   form.append('gender_strength', $('ag-gs').value);
   form.append('encoder', $('ag-encoder').value);
-  busy('ag', true, '나이 변환 중');
+  return form;
+}
+
+async function call(path, form, text, onDone) {  // 복원·나이 변환 중에는 두 버튼 모두 막는다
+  busy('ag', true, text);
+  $('ag-restore').disabled = true;
   try {
-    const res = await api('/v1/aging', form);
-    busy('ag', false);
+    const res = await api(path, form);
     done('ag', `완료 ${res.seconds}초 · result_id ${res.result_id}`);
     remember(res);
-    addRun(res, f);
-  } catch (e) { busy('ag', false); done('ag', e.message, false); }
+    onDone(res);
+  } catch (e) { done('ag', e.message, false); }
+  finally { busy('ag', false); $('ag-restore').disabled = false; }
+}
+
+const runAging = (form, file) => call('/v1/aging', form, '나이 변환 중', res => addRun(res, file));
+
+$('ag-run').addEventListener('click', () => {
+  const f = $('ag-image').files[0];
+  if (!f) return done('ag', '사진을 고르세요.', false);
+  const form = agingForm();
+  form.append('image', f);
+  runAging(form, f);
+});
+
+$('ag-restore').addEventListener('click', () => {
+  const f = $('ag-image').files[0];
+  if (!f) return done('ag', '사진을 고르세요.', false);
+  const form = new FormData();
+  form.append('image', f);
+  form.append('w', $('ag-w').value);
+  call('/v1/restore', form, 'CodeFormer 복원 중', addRestore);
 });
 </script>
 </body>

@@ -28,6 +28,8 @@ ITEMS = [  # (저장 경로, 종류, 출처)
     ("weights/ir_se50/model_ir_se50.pth", "gdrive", "1KW7bjndL3QG3sxBbZxreGHigcCCpsDgn"),  # pSp 공식 IR-SE50
     ("weights/codeformer/codeformer_colorization.pth", "http",
      "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer_colorization.pth"),
+    ("weights/codeformer/codeformer.pth", "http",  # 복원 (POST /v1/restore, 골랐을 때만)
+     "https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/codeformer.pth"),
     ("weights/facexlib/detection_Resnet50_Final.pth", "http",
      "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth"),
     # 나이 변환 신원 점수용 ArcFace (insightface buffalo_l 288MB zip 에서 이 파일만 꺼냄)
