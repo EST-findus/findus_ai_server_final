@@ -36,7 +36,6 @@ from src.hair_fit import USER_LIMIT  # noqa: E402
 
 GLASSES_FINE = (-1.0, 1.0)
 
-from . import java_client, store  # noqa: E402
 from . import age_eval, java_client, store  # noqa: E402
 from .engine import (BadInput, Busy, NotReady, default_encoder, encoders, engine, presets, resolve_color,  # noqa: E402
                      style_refs)
@@ -100,14 +99,17 @@ def _sex(sex: Optional[str]) -> str:
     return s
 
 
-def _source(result_id: Optional[str], keys: Optional[str], image: Optional[UploadFile], sex: Optional[str]):
-    """다음 단계의 입력: 올린 사진(image) 또는 이전 결과(result_id). → (이미지들, 성별, 부모 id, 정렬 필요 여부)"""
+def _source(result_id: Optional[str], keys: Optional[str], image: Optional[UploadFile], sex: Optional[str],
+            need_sex: bool = True):
+    """다음 단계의 입력: 올린 사진(image) 또는 이전 결과(result_id). → (이미지들, 성별, 부모 id, 정렬 필요 여부)
+    need_sex=False(안경): 성별을 안 쓰므로 없으면 None (restore 결과는 성별이 없다)."""
+    sex_of = lambda s: _sex(s) if need_sex or (s or "").strip() else None  # noqa: E731
     if image is not None and image.filename:
-        return {"face": _decode(image)}, _sex(sex), None, True
+        return {"face": _decode(image)}, sex_of(sex), None, True
     if result_id:
         m = store.meta(result_id)
         wanted = [k.strip() for k in keys.split(",") if k.strip()] if keys else None
-        return store.load_images(result_id, wanted), _sex(sex or m.get("sex")), result_id, False
+        return store.load_images(result_id, wanted), sex_of(sex or m.get("sex")), result_id, False
     raise BadInput("result_id(이전 결과) 또는 image(얼굴 사진) 중 하나가 필요합니다.")
 
 
@@ -263,7 +265,7 @@ def glasses_preview(method: str, key: str):
 def glasses(result_id: Optional[str] = Form(None, description="이전 결과 id (나이 변환·머리 결과 등). image 와 둘 중 하나"),
             keys: Optional[str] = Form(None, description="result_id 의 이미지 중 일부만. 비우면 전부"),
             image: Optional[UploadFile] = File(None, description="얼굴 사진"),
-            sex: Optional[str] = Form(None, description="M | F. image 를 올렸을 때 필수"),
+            sex: Optional[str] = Form(None, description="M | F. 선택 (안경은 성별을 쓰지 않는다. 결과에 기록만)"),
             style: str = Form(..., description="안경 key (GET /v1/glasses/styles 의 방식별 목록)"),
             method: Optional[str] = Form(None, description="gan(GlassesGAN, 기본) | overlay(사진 합성)"),
             size: float = Form(0.0, ge=GLASSES_FINE[0], le=GLASSES_FINE[1], description="gan: 안경 크기 미세 조정 (-1~1)"),
@@ -271,7 +273,7 @@ def glasses(result_id: Optional[str] = Form(None, description="이전 결과 id 
             scale: float = Form(1.0, ge=GLASSES_SCALE[0], le=GLASSES_SCALE[1],
                                 description=f"overlay: 안경 크기 배율 ({GLASSES_SCALE[0]}~{GLASSES_SCALE[1]})")):
     method = method or _glasses_default()
-    images, sex, parent, align = _source(result_id, keys, image, sex)
+    images, sex, parent, align = _source(result_id, keys, image, sex, need_sex=False)
     t0 = time.time()
     out, info, identity = engine.glasses(images, method, style, align, scale=scale, size=size, thickness=thickness)
     opts = {"method": method, "style": style, **({"size": size, "thickness": thickness} if method == "gan" else {"scale": scale})}
