@@ -83,13 +83,29 @@
 
   <!-- 안경 -->
   <section>
-    <h2>안경 <span class="tag">POST /v1/glasses</span> <span class="tag todo">구현 전 (501)</span></h2>
-    <p class="hint">요청 형식만 정해 둔 상태. 지금은 서버가 501 을 돌려준다.</p>
+    <h2>안경 <span class="tag">POST /v1/glasses</span></h2>
+    <p class="hint">GlassesGAN: 생성기가 안경을 그리고 테만 원본에 섞는다 (렌즈 안 눈은 원본 그대로). 사진 합성: 안경 사진을 두 눈에 맞춰 얹는다. 머리를 바꿀 거면 머리 먼저, 안경은 맨 마지막에.</p>
     <div class="row">
-      <label class="f">안경 스타일<input id="gl-style" type="text" value="round"></label>
+      <div class="f">방식
+        <div class="seg">
+          <label><input type="radio" name="glm" value="gan" checked><span>GlassesGAN</span></label>
+          <label><input type="radio" name="glm" value="overlay"><span>사진 합성</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="row"><div class="f"><span>안경 <b id="gl-name">-</b></span><div id="gl-styles" class="thumbs wide"><span class="status">목록 받는 중…</span></div></div></div>
+    <div class="row">
+      <label class="f gl-gan"><span>크기 <b id="gl-size-v">0.00</b></span><input id="gl-size" type="range" min="-1" max="1" step="0.25" value="0"></label>
+      <label class="f gl-gan"><span>테 두께 <b id="gl-thick-v">0.00</b></span><input id="gl-thick" type="range" min="-1" max="1" step="0.25" value="0"></label>
+      <label class="f gl-overlay" hidden><span>안경 크기 <b id="gl-scale-v">1.00</b></span><input id="gl-scale" type="range" min="0.85" max="1.15" step="0.05" value="1"></label>
+    </div>
+    <div class="row">
       <button id="gl-run">안경 씌우기</button>
+      <button id="gl-all" class="ghost">전부 씌우기 (원본과 비교)</button>
+      <button id="gl-both" class="ghost">두 방식 비교</button>
     </div>
     <div id="gl-status" class="status"></div>
+    <div id="gl-compare"></div>
   </section>
 
   <!-- 결과 -->
@@ -151,6 +167,8 @@ async function loadBase(rid, onlyKey) {
     }
     if (m.sex) setRadio('sex', m.sex);
     done('base', `${KIND[m.kind] || m.kind} 결과 · ${m.sex === 'F' ? '여' : '남'} · ${m.created}` + (m.parent_id ? ` · 기준 ${m.parent_id}` : ''));
+    if (m.kind === 'glasses') done('hr', '기준이 안경 결과입니다. 머리 모델이 안경을 지울 수 있어요: 머리 먼저, 안경은 맨 마지막에.', false);
+    else $('hr-status').textContent = '';
     renderStyles();
   } catch (e) {
     base = null;
@@ -286,19 +304,145 @@ $('hr-run').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------- 안경
-$('gl-run').addEventListener('click', async () => {
+let glInfo = null, glStyle = {};   // glStyle: 방식별로 고른 안경 key
+const glMethod = () => radio('glm');
+const glStyles = m => (glInfo && glInfo.methods[m] ? glInfo.methods[m].styles : []);
+const glName = (m, key) => (glStyles(m).find(s => s.key === key) || {}).name || key;
+$('gl-scale').addEventListener('input', e => $('gl-scale-v').textContent = Number(e.target.value).toFixed(2));
+$('gl-size').addEventListener('input', e => $('gl-size-v').textContent = Number(e.target.value).toFixed(2));
+$('gl-thick').addEventListener('input', e => $('gl-thick-v').textContent = Number(e.target.value).toFixed(2));
+
+function renderGlasses() {
+  const m = glMethod(), box = $('gl-styles');
+  document.querySelectorAll('.gl-gan').forEach(n => n.hidden = m !== 'gan');
+  document.querySelectorAll('.gl-overlay').forEach(n => n.hidden = m !== 'overlay');
+  box.innerHTML = '';
+  if (glInfo && !glInfo.methods[m].available) {
+    box.innerHTML = '<span class="status err">이 서버에 GlassesGAN 이 없습니다 (docs/[05] 4-2)</span>';
+    return;
+  }
+  for (const st of glStyles(m)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.title = st.name;
+    b.dataset.key = st.key;
+    const img = document.createElement('img');
+    img.alt = st.name;
+    const cap = document.createElement('span');
+    cap.textContent = st.name + (st.required ? ' ★' : '');
+    b.append(img, cap);
+    b.addEventListener('click', () => {
+      glStyle[m] = st.key;
+      $('gl-name').textContent = st.name;
+      box.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    });
+    box.append(b);
+    blobUrl(st.preview).then(u => img.src = u).catch(() => {});  // GlassesGAN 미리보기는 처음 한 번 만드느라 몇 초 걸린다
+  }
+  const pick = box.querySelector(`button[data-key="${glStyle[m]}"]`) || box.querySelector('button');
+  if (pick) pick.click();
+}
+document.querySelectorAll('input[name=glm]').forEach(el => el.addEventListener('change', renderGlasses));
+
+// 안경 결과의 이미지 아래 글: 안경 전 대비 ArcFace, 바뀐 픽셀 비율
+function glassesInfo(res) {
+  for (const im of res.images) {
+    const s = res.extra.identity?.[im.key]?.arcface, i = im.info || {};
+    im.info = {};
+    if (s != null) im.info['ArcFace(안경 전 대비)'] = s.toFixed(2);
+    if (i.changed_ratio != null) im.info['바뀐 픽셀'] = (i.changed_ratio * 100).toFixed(1) + '%';
+    if (i.had_glasses) im.info['원래 안경 있음'] = '';
+  }
+  return res;
+}
+
+async function runGlasses(method, style) {
   const form = new FormData();
   const err = addSource(form);
-  if (err) return done('gl', err, false);
-  form.append('style', $('gl-style').value);
-  busy('gl', true, '요청 중');
+  if (err) throw new Error(err);
+  form.append('method', method);
+  form.append('style', style);
+  if (method === 'gan') { form.append('size', $('gl-size').value); form.append('thickness', $('gl-thick').value); }
+  else form.append('scale', $('gl-scale').value);
+  const res = glassesInfo(await api('/v1/glasses', form));
+  remember(res);
+  addRun(res);
+  return res;
+}
+
+// 키(나이)·방식마다 한 줄: 원본 · 결과들. rows = [{title, results}]
+function showCompare(rows) {
+  const box = $('gl-compare');
+  box.innerHTML = '';
+  const first = rows[0].results[0];
+  const cols = Math.max(...rows.map(r => r.results.length)) + 1;  // 줄마다 칸 수를 같게 해서 얼굴 크기를 맞춘다
+  for (const im of first.images) {
+    for (const row of rows) {
+      const head = document.createElement('div');
+      head.className = 'status';
+      head.textContent = `${imgLabel(im)} · ${row.title}`;
+      const grid = document.createElement('div');
+      grid.className = 'grid compare';
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      if (first.parent_id) {
+        grid.append(figure(first.parent_id, { key: im.key, label: '원본', url: `/v1/results/${first.parent_id}/images/${im.key}.png` }));
+      } else {  // 올린 사진: 정렬 전 사진을 그대로 보여 준다
+        const fig = document.createElement('figure');
+        fig.innerHTML = '<img alt="원본"><figcaption><b>원본 (올린 사진, 정렬 전)</b></figcaption>';
+        fig.querySelector('img').src = $('base-preview').src;
+        grid.append(fig);
+      }
+      for (const res of row.results) {
+        const r = res.images.find(x => x.key === im.key);
+        grid.append(figure(res.result_id, { ...r, label: glName(res.extra.method, res.extra.style) }));
+      }
+      box.append(head, grid);
+    }
+  }
+}
+
+async function runMany(label, jobs) {  // jobs = [{title, method, styles}]
+  const btns = ['gl-all', 'gl-both'].map($);
+  btns.forEach(b => b.disabled = true);
+  busy('gl', true, label);
   try {
-    const res = await api('/v1/glasses', form);
+    const rows = [];
+    for (const j of jobs) {
+      const results = [];
+      for (const st of j.styles) results.push(await runGlasses(j.method, st));
+      rows.push({ title: j.title, results });
+    }
     busy('gl', false);
-    done('gl', `완료 ${res.seconds}초`);
-    remember(res);
-    addRun(res);
+    const all = rows.flatMap(r => r.results);
+    done('gl', `완료 ${all.length}장 · 합계 ${all.reduce((t, r) => t + r.seconds, 0).toFixed(1)}초`);
+    showCompare(rows);
+    renderRecent(base && base.result_id);
   } catch (e) { busy('gl', false); done('gl', e.message, false); }
+  btns.forEach(b => b.disabled = false);
+}
+
+$('gl-run').addEventListener('click', async () => {
+  const m = glMethod(), key = glStyle[m];
+  if (!key) return done('gl', '안경을 고르세요.', false);
+  busy('gl', true, '안경 씌우는 중');
+  try {
+    const res = await runGlasses(m, key);
+    busy('gl', false);
+    done('gl', `완료 ${res.seconds}초 · result_id ${res.result_id}`);
+    showCompare([{ title: glInfo.methods[m].name, results: [res] }]);
+    renderRecent(base && base.result_id);
+  } catch (e) { busy('gl', false); done('gl', e.message, false); }
+});
+
+$('gl-all').addEventListener('click', () => {
+  const m = glMethod();
+  runMany('전부 씌우는 중', [{ title: glInfo.methods[m].name, method: m, styles: glStyles(m).map(s => s.key) }]);
+});
+
+$('gl-both').addEventListener('click', () => {
+  const jobs = ['gan', 'overlay'].filter(m => glInfo.methods[m].available)
+    .map(m => ({ title: glInfo.methods[m].name, method: m, styles: glStyles(m).map(s => s.key) }));
+  runMany('두 방식 씌우는 중', jobs);
 });
 
 // ---------------------------------------------------------------- 결과 기록
@@ -334,6 +478,8 @@ function addRun(res) {
 renderRecent();
 api('/v1/hair/styles').then(p => { presets = p; renderStyles(); renderColors(); })
   .catch(e => done('hr', '스타일 목록을 못 받음: ' + e.message, false));
+api('/v1/glasses/styles').then(p => { glInfo = p; setRadio('glm', p.default_method); renderGlasses(); })
+  .catch(e => done('gl', '안경 목록을 못 받음: ' + e.message, false));
 const qid = new URLSearchParams(location.search).get('result_id');
 if (qid) loadBase(qid);
 else if (recent().length) loadBase(recent()[0].result_id);

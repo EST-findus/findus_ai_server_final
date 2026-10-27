@@ -1,0 +1,27 @@
+# 안경 종류 (GlassesGAN, docs/[05] 3장). 색이 강한 안경은 넣지 않는다.
+#  shape: PCA 모양 축에 더하는 값. size(+ 가늘고 넓은 사각) height(+ 테가 위로) square(+ 각진 웰링턴, - 가는 금속 라운드)
+#         round(+ 작은 원형 렌즈) cateye thick(+ 두꺼운 테). 2026-10-27 사진 2장에서 후보 4개씩 비교해 고름.
+#         ±8 넘는 값은 테가 찌그러지거나(팔각형) 끊겨서 쓰지 않는다
+#  color: 테 색. sat 채도 배율(0 = 무채색), L 밝기 평균(0~100, 비우면 생성된 밝기 그대로), contrast 명암 폭 배율
+#         (검정 테 0.4: 밝은 얼굴에서 아래 테가 밝게 그려져 끊겨 보이던 것을 막는다)
+#  bias:  평균 안경 세기. 비우면 테 면적으로 자동 (1.0~2.0 중 5개)
+#  은색 테는 뺐다: 밝은 색으로 칠하면 만화처럼 납작해졌다 (docs/[05] 8-2). 모양 값은 docs/[05] 8-3
+styles:
+  - key: horn_black
+    name: 검정 뿔테
+    required: true
+    shape: {square: 5, thick: 4}
+    color: {sat: 0.0, L: 10}
+  - key: round_black
+    name: 검정 동글이
+    required: true
+    shape: {square: -4, round: 3}
+    color: {sat: 0.0, L: 10}
+  - key: rect_thin_black
+    name: 검정 얇은 사각테
+    shape: {size: 7, square: 2}
+    color: {sat: 0.0, L: 12}
+  - key: round_metal
+    name: 진회색 메탈 라운드
+    shape: {square: -6, thick: -4}
+    color: {sat: 0.15}

@@ -17,6 +17,8 @@ import cv2
 import numpy as np
 import yaml
 
+from src import glasses as glasses_mod
+from src import glasses_gan
 from src.align import ffhq_align
 from src.hair_color import HairMask, hair_delta_e, recolor
 from src.hairstyle import HairPost, hair_only
@@ -100,6 +102,7 @@ class Engine:
         self._cache = {}          # keep_loaded: true 일 때 나이 변환 모델 보관
         self._encoder = None      # _cache 에 올라간 모델이 쓴 나이 인코더 경로
         self._hair: Optional[HairPost] = None
+        self._gan: Optional[glasses_gan.GlassesGAN] = None   # 안경 GlassesGAN. 머리처럼 다음 나이 변환·머리 전까지 올려 둔다
         self._thumb_lock = threading.Lock()
         self._thumb_parser = None
 
@@ -121,12 +124,18 @@ class Engine:
     @property
     def loaded(self) -> List[str]:
         return (["hair"] if self._hair is not None and self._hair.styler is not None else []) + \
-               (["aging"] if self._cache else [])
+               (["aging"] if self._cache else []) + (["glasses"] if self._gan is not None else [])
 
     def _free_hair(self):
         if self._hair is not None:
             self._hair.free()
             self._hair = None
+            _empty_cuda()
+
+    def _free_gan(self):
+        if self._gan is not None:
+            self._gan.free()
+            self._gan = None
             _empty_cuda()
 
     def _free_aging(self):
@@ -149,6 +158,7 @@ class Engine:
         cfg["evaluators"] = [e for e in cfg["evaluators"] if e["name"] == "arcface"]
         with self.gpu():
             self._free_hair()
+            self._free_gan()
             self._free_aging()
             pipe = Pipeline(cfg)
             works = [_Work(Job(img), [])]
@@ -187,6 +197,7 @@ class Engine:
             cfg["aging"]["encoder_full"] = str(ENCODER_DIR / encoder)
         with self.gpu():
             self._free_hair()
+            self._free_gan()
             if cfg["aging"]["encoder_full"] != self._encoder:  # keep_loaded 일 때 이전 인코더가 GPU 에 남지 않게
                 self._free_aging()
                 self._encoder = cfg["aging"]["encoder_full"]
@@ -238,6 +249,7 @@ class Engine:
                 raise BadInput(f"머리 스타일 참조가 없습니다: {sex}/{style}/{ref}")
         with self.gpu():
             self._free_aging()
+            self._free_gan()
             if self._hair is None:
                 self._hair = HairPost(detector=cfg["detector"])
             post = self._hair
@@ -288,10 +300,97 @@ class Engine:
                             [cv2.IMWRITE_JPEG_QUALITY, 90])
         return out
 
-    # ---------------------------------------------------------------- 3. 안경 (아직 없음)
+    # ---------------------------------------------------------------- 3. 안경
 
-    def glasses(self, images: Dict[str, np.ndarray], style: str, align: bool) -> tuple:
-        raise NotReady("안경 씌우기는 아직 구현 전입니다. 요청 형식은 docs/[00]_서버_구성_계획.md 5-3 을 보세요.")
+    def glasses(self, images: Dict[str, np.ndarray], method: str, style: str, align: bool, scale: float = 1.0,
+                size: float = 0.0, thickness: float = 0.0) -> tuple:
+        """{키: 얼굴} → {키: 안경 쓴 얼굴}, {키: 정보}, {키: {arcface: 안경 전 대비}}.
+        method gan: GlassesGAN 이 안경을 그리고 테만 원본에 섞는다 (src/glasses_gan.py, docs/[05]). 나이·머리 모델을 내리고 올린다.
+        method overlay: 안경 사진 2D 합성 (src/glasses.py, docs/[04]). CPU 라서 다른 모델을 내리지 않는다."""
+        cfg = config()
+        post = self._hair or HairPost(detector=cfg["detector"])  # 검출기만 잠깐 쓴다 (HairFast 는 안 올린다)
+        out, info = {}, {}
+        if method == "gan":
+            preset = glasses_gan.preset(style)
+            if preset is None:
+                raise BadInput(f"모르는 안경입니다: {style} (GET /v1/glasses/styles 의 gan 목록)")
+            if not glasses_gan.available():
+                raise BadInput("GlassesGAN 이 없습니다 → docs/[05] 4-2 (third_party/GlassesGAN, weights/glassesgan)")
+            with self.gpu():
+                if align:
+                    try:
+                        images = post.align(images)
+                    except ValueError as e:
+                        raise BadInput(str(e))
+                self._free_hair()
+                self._free_aging()
+                post = HairPost(detector=cfg["detector"])  # 머리 모델을 내렸으니 점수용 검출기는 새로
+                if self._gan is None:
+                    self._gan = glasses_gan.GlassesGAN(cfg.get("device", "cuda"))
+                for k, img in images.items():
+                    try:
+                        out[k], info[k] = self._gan(img, preset, size=size, thickness=thickness)
+                    except ValueError as e:
+                        raise BadInput(f"{k}: {e}")
+        elif method == "overlay":
+            if style not in glasses_mod.STYLES:
+                raise BadInput(f"모르는 안경입니다: {style} (GET /v1/glasses/styles 의 overlay 목록)")
+            try:
+                asset = glasses_mod.load(style)
+            except FileNotFoundError as e:
+                raise BadInput(str(e))
+            if align:
+                with self.gpu():
+                    try:
+                        images = post.align(images)
+                    except ValueError as e:
+                        raise BadInput(str(e))
+            with self._thumb_lock:  # 썸네일과 같은 CPU 얼굴 분할을 같이 쓴다
+                if self._thumb_parser is None:
+                    self._thumb_parser = HairMask("cpu")
+                for k, img in images.items():
+                    try:
+                        out[k], info[k] = glasses_mod.apply(img, self._thumb_parser.parse(img), asset, scale)
+                    except ValueError as e:
+                        raise BadInput(f"{k}: {e}")
+        else:
+            raise BadInput(f"method 는 gan 또는 overlay 입니다: {method}")
+        for k in info:
+            info[k]["method"] = method
+        if not (WEIGHTS / "arcface" / "w600k_r50.onnx").exists():  # 점수는 참고용이라 가중치가 없으면 안경만 씌운다
+            return out, info, {}
+        with self.gpu():
+            scores = post._score(images, out, ["arcface"])
+        identity = {k: {n: round(v, 3) for n, v in s.items()} for k, s in scores.items()}
+        return out, info, identity
 
+    def glasses_preview(self, method: str, style: str) -> Path:
+        """안경 카드용 미리보기 PNG (처음 한 번 만들어 둔다). 사람 얼굴은 쓰지 않는다:
+        overlay 는 안경 사진, gan 은 생성기의 평균 얼굴(실존 인물 아님)에 씌운 눈 부분."""
+        out = glasses_mod.ASSETS / "_preview" / f"{method}_{style}.png"
+        if out.exists():
+            return out
+        if method == "overlay":
+            if style not in glasses_mod.STYLES:
+                raise BadInput(f"모르는 안경입니다: {style}")
+            try:
+                img = glasses_mod.preview(style)
+            except FileNotFoundError as e:
+                raise BadInput(str(e))
+        elif method == "gan":
+            preset = glasses_gan.preset(style)
+            if preset is None or not glasses_gan.available():
+                raise BadInput(f"GlassesGAN 안경 없음: {style}")
+            with self.gpu():
+                self._free_hair()
+                self._free_aging()
+                if self._gan is None:
+                    self._gan = glasses_gan.GlassesGAN(config().get("device", "cuda"))
+                img = self._gan.preview(preset)
+        else:
+            raise BadInput(f"method 는 gan 또는 overlay 입니다: {method}")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        imwrite_rgb(out, img)
+        return out
 
 engine = Engine()
