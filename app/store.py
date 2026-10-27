@@ -1,7 +1,7 @@
 """결과 저장소. 요청 하나 = 결과 하나 (outputs/<result_id>/). 한 번 만든 결과는 바꾸지 않는다.
 
     outputs/20261020-153012-a1b2c3/
-        meta.json        {result_id, kind: restore|aging|hair|glasses, parent_id, sex, created, images: {키: 파일}, ...}
+        meta.json        {result_id, kind: restore|aging|hair|glasses|db, parent_id, sex, created, images: {키: 파일}, ...}
         age30.png        FFHQ 정렬 1024 결과 (무손실)
 
 키는 나이 변환이면 'age30' 처럼 나이, 올린 사진에 바로 머리를 입히면 'face'. 복원은 'face'(복원)와 'input'(복원 전).
