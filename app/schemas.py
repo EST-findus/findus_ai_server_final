@@ -9,7 +9,7 @@ class ImageOut(BaseModel):
     age: Optional[int] = Field(None, description="목표 나이 (나이 변환 결과에서 이어졌을 때)")
     url: str = Field(description="PNG 주소 (FFHQ 정렬 1024x1024)")
     info: Dict = Field(default_factory=dict, description="단계별 정보 (머리: 쓴 참조 ref, 배율 scale, 색 차이 color_dE. "
-                                                         "안경: had_glasses(원래 안경을 썼나), eyes(찾은 두 눈), changed_ratio(바뀐 픽셀 비율), width_ratio(테 폭/얼굴 폭))")
+                                                         "안경: method, changed_ratio(바뀐 픽셀 비율). gan: bias(안경 세기), frame_area(테 면적), lens_changed(렌즈 안쪽 바뀐 비율). overlay: had_glasses, eyes, width_ratio)")
 
 
 class ResultOut(BaseModel):
@@ -50,13 +50,22 @@ class HairStylesOut(BaseModel):
 class GlassesStyle(BaseModel):
     key: str = Field(description="POST /v1/glasses 의 style")
     name: str
-    preview: str = Field(description="안경 사진 미리보기 PNG 주소 (얼굴 없음)")
+    required: bool = Field(False, description="꼭 있어야 하는 안경 (검정 뿔테·검정 동글이)")
+    preview: str = Field(description="미리보기 PNG 주소 (얼굴 없음)")
+
+
+class GlassesMethod(BaseModel):
+    name: str
+    available: bool = Field(description="가중치·코드가 있어 쓸 수 있는가")
+    styles: List[GlassesStyle]
+    scale: Optional[List[float]] = Field(None, description="overlay: scale 범위")
+    fine: Optional[List[float]] = Field(None, description="gan: size·thickness 범위")
 
 
 class GlassesStylesOut(BaseModel):
     implemented: bool
-    scale: List[float] = Field(description="scale(안경 크기 배율) 범위 [최소, 최대]")
-    styles: List[GlassesStyle]
+    default_method: str = Field(description="method 를 비웠을 때 쓰는 방식")
+    methods: Dict[str, GlassesMethod] = Field(description="gan(GlassesGAN 생성) | overlay(사진 합성)")
 
 
 class HealthOut(BaseModel):
@@ -64,4 +73,4 @@ class HealthOut(BaseModel):
     cuda: bool
     gpu: Optional[str] = None
     busy: bool = Field(description="지금 GPU 작업 중인가")
-    loaded: List[str] = Field(description="GPU 에 올라가 있는 모델 (hair, aging)")
+    loaded: List[str] = Field(description="GPU 에 올라가 있는 모델 (hair, aging, glasses)")

@@ -37,6 +37,27 @@ PATCHED = ["third_party/SAM/models/stylegan2/op/fused_act.py", "third_party/SAM/
            "third_party/CodeFormer/basicsr/version.py"]
 
 
+GLASSESGAN = {  # 안경 GlassesGAN (docs/[05]). 없으면 안경은 사진 합성만 된다 (경고만)
+    "weights/glassesgan/e4e_ffhq_encode.pt": 1_201_649_680,
+    "weights/glassesgan/deeplab_epoch_19.pth": 235_170_121,
+    "weights/glassesgan/fitted_pca_celebhq_dataset_results.joblib": 1_549_564,
+    "weights/glassesgan/aveglassesdiff_celebhq_dataset_results_RG.npy": 36_992,
+    "third_party/GlassesGAN/encoder4editing/models/psp.py": 0,
+}
+
+
+def check_glassesgan() -> list:
+    warn = []
+    for rel, size in GLASSESGAN.items():
+        p = ROOT / rel
+        if not p.exists() or (size and abs(p.stat().st_size - size) > 0.1 * size):
+            warn.append(f"없음      {rel}")
+    op = ROOT / "third_party/GlassesGAN/encoder4editing/models/stylegan2/op/fused_act.py"
+    if op.exists() and "Pure PyTorch" not in op.read_text(encoding="utf-8"):
+        warn.append(f"패치 전   {op.relative_to(ROOT)} (python scripts/patch_third_party.py)")
+    return warn
+
+
 def main():
     bad = []
     for rel, size in WEIGHTS.items():
@@ -71,6 +92,11 @@ def main():
         print(f"torch {torch.__version__}, CUDA {'사용 가능 ' + torch.cuda.get_device_name(0) if torch.cuda.is_available() else '없음'}")
     except ImportError:
         bad.append("torch 가 설치되지 않음")
+    warn = check_glassesgan()
+    if warn:
+        print("[경고] GlassesGAN 이 없어 안경은 사진 합성만 됩니다 (docs/[05] 4-2):")
+        for w in warn:
+            print("  " + w)
     if bad:
         print(f"빠진 것 {len(bad)}개:")
         for b in bad:

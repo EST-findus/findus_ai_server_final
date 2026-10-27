@@ -36,6 +36,11 @@ ITEMS = [  # (저장 경로, 종류, 출처)
     ("weights/arcface/w600k_r50.onnx", "zip",
      "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip#w600k_r50.onnx"),
     *[(f"third_party/HairFastGAN/pretrained_models/{f}", "http", HF + f) for f in HAIRFAST],
+    # GlassesGAN 안경 (docs/[05]). 코드는 third_party/GlassesGAN (git clone pleshro/GlassesGAN_release)
+    ("weights/glassesgan/e4e_ffhq_encode.pt", "gdrive", "1lydmMcVZUV-tr6gKp8Tv-icD3uvAwCED"),  # e4e + StyleGAN2 (약 1.2GB, 생성기는 SAM 과 같음)
+    ("weights/glassesgan/deeplab_epoch_19.pth", "gdrive", "1rn2HJXLn1qC8c-6OARrWPw7IFbddt9eo"),  # 안경 분할 (테·렌즈)
+    ("weights/glassesgan/fitted_pca_celebhq_dataset_results.joblib", "gdrive", "1XeGJ6bMulBwtRj7PvK6NSRHN16E3yCsv"),  # 모양 축
+    ("weights/glassesgan/aveglassesdiff_celebhq_dataset_results_RG.npy", "gdrive", "1FXTPEkyaSFN_IRZq04_pF-iD0qnyPgwf"),  # 평균 안경 (맑은 렌즈)
 ]
 
 

@@ -2,7 +2,7 @@
 
 1. SAM의 StyleGAN2 CUDA 커스텀 연산(fused_act, upfirdn2d)을 순수 PyTorch 구현으로 교체
    - 원본은 *.py.cuda_bak 으로 보관
-   - HairFastGAN(받아 둔 경우)도 같은 연산을 쓰므로 함께 교체
+   - HairFastGAN·GlassesGAN(받아 둔 경우)도 같은 연산을 쓰므로 함께 교체
 2. CodeFormer의 basicsr/version.py 생성 (원래 setup.py develop 이 만들어주는 파일)
 3. DDColor(받아 둔 경우)가 자기 basicsr 폴더 대신 ddcolor/arch_utils 를 쓰게 바꾼다
    - CodeFormer 의 basicsr 와 이름이 같아서, 그대로 두면 한쪽이 가려진다
@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DDCOLOR = ROOT / "third_party" / "DDColor"
 SAM_OP = ROOT / "third_party" / "SAM" / "models" / "stylegan2" / "op"
 HAIRFAST_OP = ROOT / "third_party" / "HairFastGAN" / "models" / "stylegan2" / "op"  # e4e·FS 인코더도 이 op 를 import
+GLASSESGAN_OP = ROOT / "third_party" / "GlassesGAN" / "encoder4editing" / "models" / "stylegan2" / "op"  # 안경 (docs/[05])
 CF_BASICSR = ROOT / "third_party" / "CodeFormer" / "basicsr"
 
 FUSED_ACT = '''"""Pure PyTorch FusedLeakyReLU (patched by ai_lab/scripts/patch_third_party.py)."""
@@ -89,6 +90,9 @@ def main():
     if HAIRFAST_OP.exists():
         patch_file(HAIRFAST_OP / "fused_act.py", FUSED_ACT)
         patch_file(HAIRFAST_OP / "upfirdn2d.py", UPFIRDN2D)
+    if GLASSESGAN_OP.exists():
+        patch_file(GLASSESGAN_OP / "fused_act.py", FUSED_ACT)
+        patch_file(GLASSESGAN_OP / "upfirdn2d.py", UPFIRDN2D)
 
     version = (CF_BASICSR / "VERSION").read_text().strip()
     (CF_BASICSR / "version.py").write_text(

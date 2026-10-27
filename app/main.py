@@ -4,7 +4,7 @@
 
     POST /v1/aging     사진 + 나이 → 그 나이 얼굴
     POST /v1/hair      나이 변환 결과(result_id) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴
-    POST /v1/glasses   결과 또는 사진 + 안경(얇은 동그란 테 / 검정 뿔테) → 안경 씌운 얼굴
+    POST /v1/glasses   결과 또는 사진 + 안경 → 안경 씌운 얼굴 (GlassesGAN 생성 또는 사진 합성)
     GET  /v1/results/{result_id}                    결과 정보
     GET  /v1/results/{result_id}/images/{key}.png   결과 이미지
 
@@ -29,8 +29,11 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
+from src import glasses_gan  # noqa: E402
 from src.glasses import SCALE_LIMIT as GLASSES_SCALE, STYLES as GLASSES  # noqa: E402
 from src.hair_fit import USER_LIMIT  # noqa: E402
+
+GLASSES_FINE = (-1.0, 1.0)
 
 from . import java_client, store  # noqa: E402
 from .engine import (BadInput, Busy, NotReady, default_encoder, encoders, engine, presets, resolve_color,  # noqa: E402
@@ -230,32 +233,48 @@ def hair(result_id: Optional[str] = Form(None, description="이전 결과 id (�
 
 # ---------------------------------------------------------------- 3. 안경
 
-@v1.get("/glasses/styles", response_model=GlassesStylesOut, summary="고를 수 있는 안경")
+def _glasses_default() -> str:
+    return "gan" if glasses_gan.available() else "overlay"
+
+
+@v1.get("/glasses/styles", response_model=GlassesStylesOut, summary="고를 수 있는 안경 (방식별)")
 def glasses_styles():
-    return {"implemented": True, "scale": list(GLASSES_SCALE),
-            "styles": [{"key": k, "name": n, "preview": f"/v1/glasses/styles/{k}/preview.png"} for k, n in GLASSES.items()]}
+    pv = lambda m, k: f"/v1/glasses/styles/{m}/{k}/preview.png"  # noqa: E731
+    return {"implemented": True, "default_method": _glasses_default(),
+            "methods": {
+                "gan": {"name": "GlassesGAN (생성)", "available": glasses_gan.available(), "fine": list(GLASSES_FINE),
+                        "styles": [{"key": st["key"], "name": st["name"], "required": bool(st.get("required")),
+                                    "preview": pv("gan", st["key"])} for st in glasses_gan.presets()["styles"]]},
+                "overlay": {"name": "사진 합성", "available": True, "scale": list(GLASSES_SCALE),
+                            "styles": [{"key": k, "name": n, "required": False, "preview": pv("overlay", k)}
+                                       for k, n in GLASSES.items()]}}}
 
 
-@v1.get("/glasses/styles/{key}/preview.png", summary="안경 사진 미리보기 (얼굴 없음)")
-def glasses_preview(key: str):
-    if key not in GLASSES:
-        raise store.NotFound(f"안경 없음: {key}")
-    return FileResponse(engine.glasses_preview(key), media_type="image/png")
+@v1.get("/glasses/styles/{method}/{key}/preview.png", summary="안경 미리보기 (얼굴 없음: 안경 사진 또는 생성기 평균 얼굴)")
+def glasses_preview(method: str, key: str):
+    if not ((method == "gan" and glasses_gan.preset(key)) or (method == "overlay" and key in GLASSES)):
+        raise store.NotFound(f"안경 없음: {method}/{key}")
+    return FileResponse(engine.glasses_preview(method, key), media_type="image/png")
 
 
-@v1.post("/glasses", response_model=ResultOut, summary="안경 씌우기 (얇은 동그란 테 / 검정 뿔테)")
+@v1.post("/glasses", response_model=ResultOut, summary="안경 씌우기 (GlassesGAN 생성 / 사진 합성)")
 def glasses(result_id: Optional[str] = Form(None, description="이전 결과 id (나이 변환·머리 결과 등). image 와 둘 중 하나"),
             keys: Optional[str] = Form(None, description="result_id 의 이미지 중 일부만. 비우면 전부"),
             image: Optional[UploadFile] = File(None, description="얼굴 사진"),
             sex: Optional[str] = Form(None, description="M | F. image 를 올렸을 때 필수"),
-            style: str = Form(..., description="thin_round(얇은 동그란 테) | horn_black(검정 뿔테)"),
+            style: str = Form(..., description="안경 key (GET /v1/glasses/styles 의 방식별 목록)"),
+            method: Optional[str] = Form(None, description="gan(GlassesGAN, 기본) | overlay(사진 합성)"),
+            size: float = Form(0.0, ge=GLASSES_FINE[0], le=GLASSES_FINE[1], description="gan: 안경 크기 미세 조정 (-1~1)"),
+            thickness: float = Form(0.0, ge=GLASSES_FINE[0], le=GLASSES_FINE[1], description="gan: 테 두께 미세 조정 (-1~1)"),
             scale: float = Form(1.0, ge=GLASSES_SCALE[0], le=GLASSES_SCALE[1],
-                                description=f"안경 크기 배율 ({GLASSES_SCALE[0]}~{GLASSES_SCALE[1]})")):
+                                description=f"overlay: 안경 크기 배율 ({GLASSES_SCALE[0]}~{GLASSES_SCALE[1]})")):
+    method = method or _glasses_default()
     images, sex, parent, align = _source(result_id, keys, image, sex)
     t0 = time.time()
-    out, info, identity = engine.glasses(images, style, scale, align)
-    meta = store.save("glasses", out, sex, parent, style=style, scale=scale)
-    return _result(meta, time.time() - t0, info, {"style": style, "scale": scale, "identity": identity})
+    out, info, identity = engine.glasses(images, method, style, align, scale=scale, size=size, thickness=thickness)
+    opts = {"method": method, "style": style, **({"size": size, "thickness": thickness} if method == "gan" else {"scale": scale})}
+    meta = store.save("glasses", out, sex, parent, **opts)
+    return _result(meta, time.time() - t0, info, {**opts, "identity": identity})
 
 
 # ---------------------------------------------------------------- 결과
