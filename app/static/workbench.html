@@ -278,6 +278,19 @@ async function loadSaved() {
       cap.innerHTML = `<b>${s.targetAge}세</b><span></span>`;
       cap.querySelector('span').textContent = [s.savedAt && new Date(s.savedAt + 'Z').toLocaleString(), `${s.resultId}/${s.imageKey}`]
         .filter(Boolean).join(' · ');  // savedAt 은 UTC
+      const go = document.createElement('button');
+      go.className = 'small ghost';
+      go.textContent = '후처리로 →';
+      go.addEventListener('click', async () => {
+        const f = new FormData();
+        f.append('person_id', current.id);
+        f.append('sex', radio('wb-sex'));
+        try {
+          const res = await api(`/v1/workbench/ai-images/${s.aiImageId}/import`, f);
+          location.href = `/test/post?result_id=${encodeURIComponent(res.result_id)}`;
+        } catch (e) { cap.append(' ' + e.message); }
+      });
+      cap.append(go);
       fig.append(img, cap);
       grid.append(fig);
       blobUrl(`/v1/workbench/ai-images/${s.aiImageId}`).then(u => img.src = u).catch(() => cap.append(' 사진을 못 받음'));

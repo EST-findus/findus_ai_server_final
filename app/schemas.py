@@ -13,7 +13,7 @@ class ImageOut(BaseModel):
 
 class ResultOut(BaseModel):
     result_id: str = Field(description="이 결과의 id. 다음 단계(머리·안경) 요청에 넣으면 그 위에 쌓인다")
-    kind: str = Field(description="restore | aging | hair | glasses")
+    kind: str = Field(description="restore | aging | hair | glasses | db (DB 에서 가져온 AI 사진)")
     parent_id: Optional[str] = Field(None, description="이어서 만든 이전 결과의 id")
     sex: Optional[str] = None
     seconds: float = Field(description="처리 시간 (GPU 대기 포함)")

@@ -382,6 +382,28 @@ def wb_ai_image(ai_image_id: str):
     return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
 
 
+@wb.post("/ai-images/{ai_image_id}/import", response_model=ResultOut,
+         summary="DB 에 저장한 AI 사진 → 후처리 입력 (result_id 를 /v1/hair·/v1/glasses 에 넘긴다)")
+def wb_import(ai_image_id: str, person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
+              sex: str = Form(..., description="M | F")):
+    aid = java_client.as_uuid(ai_image_id, "ai_image_id")
+    p = java_client.person(person_id)
+    s = next((s for s in java_client.saves(person_id) if s["aiImageId"] == aid), None)  # 다른 아동의 사진은 막는다
+    if not s:
+        raise store.NotFound(f"이 아동이 저장한 AI 사진이 아닙니다: {ai_image_id}")
+    data, _ = java_client.ai_image(aid)
+    try:
+        opts = json.loads(s.get("options") or "{}")
+    except ValueError:
+        opts = {}
+    origin = {"person_id": p["id"], "source_image_id": s["sourceImageId"], "person_name": p.get("name"),
+              "model": opts.get("model") or MODEL, "encoder": opts.get("encoder"), "restore": opts.get("restore", False)}
+    t0 = time.time()
+    extra = {"ai_image_id": aid, "from_result": s.get("resultId")}
+    meta = store.save("db", {f"age{s['targetAge']}": _decode_bytes(data, "DB AI 사진")}, _sex(sex), origin=origin, **extra)
+    return _result(meta, time.time() - t0, extra=extra)
+
+
 app.include_router(v1)
 app.include_router(wb)
 
