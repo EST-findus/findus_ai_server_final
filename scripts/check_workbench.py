@@ -199,6 +199,23 @@ class WorkbenchCheck(unittest.TestCase):
         status, data = call("GET", f"/v1/workbench/ai-images/{saved['aiImageId']}")
         self.assertEqual(status, 200)
 
+    def test_DB_에_저장한_AI_사진을_가져와_후처리하고_다시_저장한다(self):
+        res = self.aging(encoder="other.pt")
+        status, saved = call("POST", "/v1/workbench/saves", {"result_id": res["result_id"], "key": "age30"})
+        self.assertEqual(status, 201, saved)
+        status, imp = call("POST", f"/v1/workbench/ai-images/{saved['aiImageId']}/import", {"person_id": PERSON, "sex": "F"})
+        self.assertEqual(status, 200, imp)
+        self.assertEqual((imp["kind"], [im["key"] for im in imp["images"]], imp["sex"]), ("db", ["age30"], "F"))
+        self.assertEqual((imp["origin"]["source_image_id"], imp["origin"]["encoder"]), (SOURCE, "other.pt"))
+        self.assertEqual(imp["extra"]["from_result"], res["result_id"])
+        hair = store.save("hair", store.load_images(imp["result_id"]), "F", imp["result_id"], style="bob")
+        status, again = call("POST", "/v1/workbench/saves", {"result_id": hair["result_id"], "key": "age30"})
+        self.assertEqual(status, 201, again)
+        steps = json.loads(FakeJava.saves[(hair["result_id"], "age30")]["options"])["steps"]
+        self.assertEqual([s["kind"] for s in steps], ["db", "hair"])
+        status, _ = call("POST", f"/v1/workbench/ai-images/{OTHER}/import", {"person_id": PERSON, "sex": "F"})
+        self.assertEqual(status, 404)  # 저장 목록에 없는 사진
+
     def test_고른_인코더로_변환하고_저장_정보에_남긴다(self):
         res = self.aging(encoder="other.pt")
         self.assertEqual((fake_age.encoder, res["origin"]["encoder"]), ("other.pt", "other.pt"))

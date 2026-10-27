@@ -7,6 +7,7 @@
     POST /v1/glasses   결과 또는 사진 + 안경 → 안경 씌운 얼굴 (GlassesGAN 생성 또는 사진 합성)
     GET  /v1/results/{result_id}                    결과 정보
     GET  /v1/results/{result_id}/images/{key}.png   결과 이미지
+    GET  /v1/results/{result_id}/images/{key}/age   결과 이미지의 추정 나이 (MiVOLO, CPU, 버튼 누를 때만)
 
     /v1/workbench/*    DB 원본 작업 (시험 페이지 /test/workbench). Java 백엔드에서 원본을 받아 변환하고,
                        고른 결과만 Java 로 보내 DB 에 저장한다. 이 PC 에서 같은 출처 요청만 받는다.
@@ -36,6 +37,7 @@ from src.hair_fit import USER_LIMIT  # noqa: E402
 GLASSES_FINE = (-1.0, 1.0)
 
 from . import java_client, store  # noqa: E402
+from . import age_eval, java_client, store  # noqa: E402
 from .engine import (BadInput, Busy, NotReady, default_encoder, encoders, engine, presets, resolve_color,  # noqa: E402
                      style_refs)
 from .schemas import EncodersOut, GlassesStylesOut, HairStylesOut, HealthOut, ResultOut  # noqa: E402
@@ -290,6 +292,16 @@ def result_image(result_id: str, key: str):
     return FileResponse(store.image_path(result_id, key), media_type="image/png")
 
 
+@v1.get("/results/{result_id}/images/{key}/age", summary="결과 이미지의 추정 나이 (MiVOLO, CPU, 평가용)")
+def result_age(result_id: str, key: str):
+    img = store.load_images(result_id, [key])[key]
+    t0 = time.time()
+    age = age_eval.estimate(img)
+    if age is None:
+        raise BadInput(f"추정 나이를 쓸 수 없습니다: {age_eval.missing()}")
+    return {"age": round(age, 1), "seconds": round(time.time() - t0, 2)}
+
+
 # ---------------------------------------------------------------- 4. DB 원본 작업 (Java 연동)
 
 def local_only(request: Request):
@@ -398,6 +410,28 @@ def wb_saves(person_id: Optional[str] = None, result_id: Optional[str] = None):
 def wb_ai_image(ai_image_id: str):
     data, ctype = java_client.ai_image(ai_image_id)
     return Response(data, media_type=ctype, headers={"Cache-Control": "no-store"})
+
+
+@wb.post("/ai-images/{ai_image_id}/import", response_model=ResultOut,
+         summary="DB 에 저장한 AI 사진 → 후처리 입력 (result_id 를 /v1/hair·/v1/glasses 에 넘긴다)")
+def wb_import(ai_image_id: str, person_id: str = Form(..., description="실종아동 id (Java DB UUID)"),
+              sex: str = Form(..., description="M | F")):
+    aid = java_client.as_uuid(ai_image_id, "ai_image_id")
+    p = java_client.person(person_id)
+    s = next((s for s in java_client.saves(person_id) if s["aiImageId"] == aid), None)  # 다른 아동의 사진은 막는다
+    if not s:
+        raise store.NotFound(f"이 아동이 저장한 AI 사진이 아닙니다: {ai_image_id}")
+    data, _ = java_client.ai_image(aid)
+    try:
+        opts = json.loads(s.get("options") or "{}")
+    except ValueError:
+        opts = {}
+    origin = {"person_id": p["id"], "source_image_id": s["sourceImageId"], "person_name": p.get("name"),
+              "model": opts.get("model") or MODEL, "encoder": opts.get("encoder"), "restore": opts.get("restore", False)}
+    t0 = time.time()
+    extra = {"ai_image_id": aid, "from_result": s.get("resultId")}
+    meta = store.save("db", {f"age{s['targetAge']}": _decode_bytes(data, "DB AI 사진")}, _sex(sex), origin=origin, **extra)
+    return _result(meta, time.time() - t0, extra=extra)
 
 
 app.include_router(v1)

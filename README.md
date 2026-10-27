@@ -7,6 +7,7 @@ FindUs 얼굴 변환 API 서버. `ai_lab` 의 모델 코드와 가중치를 쓴�
 |---|---|---|
 | `POST /v1/restore` | 사진 → CodeFormer 복원 얼굴 + 원본 대비 ArcFace. 보고 고른 뒤 그 `result_id` 로 나이 변환 (`weights/codeformer/codeformer.pth` 필요) | 동작 |
 | `POST /v1/aging` | 사진 + 나이 + 성별 → 그 나이 얼굴. `encoder` 로 `weights/sam/` 의 나이 인코더를 고를 수 있다 (`GET /v1/aging/encoders`). `result_id` 로 복원 얼굴을 넣으면 원본 대비 점수도 낸다 | 동작 |
+| `GET /v1/results/{id}/images/{key}/age` | 결과 사진 하나의 추정 나이 (MiVOLO, CPU, 화면의 '나이 추정' 버튼). 기록용, 결과를 걸러내지 않음 | 동작 |
 | `POST /v1/hair` | 나이 변환 결과(`result_id`) 또는 얼굴 사진 + 머리 스타일·색 → 머리 바꾼 얼굴 | 동작 |
 | `POST /v1/glasses` | 결과 또는 사진 + 안경(검정 뿔테·검정 동글이·검정 얇은 사각테·진회색 메탈 라운드) → 안경 씌운 얼굴 | 동작. GlassesGAN 기본 (2장 약 5초, 처음 모델 올릴 때 약 11초), 사진 합성은 `method=overlay` |
 | `/v1/workbench/*` | 실종아동 DB 원본으로 나이 변환 → 고른 결과만 Java 를 거쳐 DB 저장 (시험 페이지 `/test/workbench`) | 동작 (로컬 전용) |
@@ -30,6 +31,11 @@ python -c "import torch; torch.hub.load_state_dict_from_url('https://download.py
 python scripts/sync_assets.py                # ai_lab 이 옆 폴더(../ai_lab)에 있을 때: 전부 복사
 #   다른 PC: git clone 3개 → python scripts/patch_third_party.py → python scripts/download_assets.py → 비공개 3가지 직접 복사
 python scripts/check_setup.py                # 다 갖춰졌는지 확인
+
+# (선택) 결과 추정 나이 버튼. 없어도 서버는 돈다. timm 은 torch 를 올리지 않게 --no-deps
+git clone --depth 1 https://github.com/WildChlamydia/MiVOLO third_party/MiVOLO
+pip install timm==0.8.13.dev0 --no-deps
+# 가중치 weights/mivolo/mivolo_face_imdb.pth.tar 는 download_assets.py 가 받는다
 ```
 
 ai_lab 의 `.venv` 를 그대로 써도 된다: `..\ai_lab\.venv\Scripts\python -m app`
@@ -120,6 +126,8 @@ curl -o age30.png localhost:8000/v1/results/20261020-134315-e00dd3/images/age30.
 | 나이 변환, 나이 2개 | 13.0초 |
 | CodeFormer 복원 (`/v1/restore`, 엔진 직접 호출) | 6.6초 |
 | 머리 스타일 + 색, 1장 (모델 처음 올릴 때) | 58.2~81.8초 |
+| 나이 4개 (20·30·40·50) | 15.2초 |
+| 추정 나이 1장 (CPU, 서버 켠 뒤 처음 / 그다음) | 0.82초 / 0.07~0.10초 |
 
 ## 폴더
 
