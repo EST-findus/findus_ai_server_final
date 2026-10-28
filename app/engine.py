@@ -294,7 +294,12 @@ class Engine:
             with self._thumb_lock:
                 if self._thumb_parser is None:
                     self._thumb_parser = HairMask("cpu")
-                img = cv2.resize(imread_rgb(HAIR_REFS / sex / key / name), (512, 512), interpolation=cv2.INTER_AREA)
+                img = imread_rgb(HAIR_REFS / sex / key / name)
+                h, w = img.shape[:2]
+                dy, dx = (max(h, w) - h) // 2, (max(h, w) - w) // 2   # 세로·가로 사진도 눌리지 않게 정사각형으로 채운다
+                img = cv2.copyMakeBorder(img, dy, max(h, w) - h - dy, dx, max(h, w) - w - dx,
+                                         cv2.BORDER_CONSTANT, value=(235, 235, 235))
+                img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA)
                 out.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(out), cv2.cvtColor(hair_only(img, self._thumb_parser), cv2.COLOR_RGB2BGR),
                             [cv2.IMWRITE_JPEG_QUALITY, 90])
